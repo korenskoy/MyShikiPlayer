@@ -16,7 +16,9 @@ struct ClassicPlayerOverlay: View {
     @ObservedObject var engine: PlayerEngine
 
     let isVisible: Bool
+    let isAlwaysOnTop: Bool
     let onRequestClose: () -> Void
+    let onToggleAlwaysOnTop: () -> Void
 
     private let accent = Color(hex: 0xFF4D5E) // player always uses midnight-accent
 
@@ -73,7 +75,9 @@ struct ClassicPlayerOverlay: View {
                 PlayerTopBar(
                     episodeNumber: episode,
                     title: title,
-                    onBack: onRequestClose
+                    isAlwaysOnTop: isAlwaysOnTop,
+                    onBack: onRequestClose,
+                    onToggleAlwaysOnTop: onToggleAlwaysOnTop
                 )
 
                 fallbackHintBanner

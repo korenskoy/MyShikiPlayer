@@ -12,7 +12,9 @@ import SwiftUI
 struct PlayerTopBar: View {
     let episodeNumber: Int
     let title: String
+    let isAlwaysOnTop: Bool
     let onBack: () -> Void
+    let onToggleAlwaysOnTop: () -> Void
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -41,11 +43,33 @@ struct PlayerTopBar: View {
             }
             .frame(maxWidth: .infinity)
 
-            // Symmetric spacer block so the heading is visually centered
-            // relative to the "Back" button on the left. Invisible and non-interactive.
+            // Right-side action: keep player window always on top.
+            // Width matches the left "Back" button block so the heading
+            // stays visually centered.
             HStack(spacing: 6) {
-                Color.clear.frame(width: 120, height: 1)
+                Spacer(minLength: 0)
+                Button(action: onToggleAlwaysOnTop) {
+                    DSIcon(
+                        name: isAlwaysOnTop ? .pinFill : .pin,
+                        size: 14,
+                        weight: .semibold
+                    )
+                    .foregroundStyle(Color.white.opacity(isAlwaysOnTop ? 1.0 : 0.7))
+                    .frame(width: 30, height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isAlwaysOnTop ? Color.white.opacity(0.18) : Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                    )
+                    .animation(.easeInOut(duration: 0.15), value: isAlwaysOnTop)
+                }
+                .buttonStyle(.plain)
+                .help(isAlwaysOnTop ? "Поверх других окон: вкл" : "Поверх других окон: выкл")
             }
+            .frame(width: 120)
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 18)

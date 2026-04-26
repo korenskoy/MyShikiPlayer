@@ -24,6 +24,7 @@ struct PlayerView: View {
     @State private var playerWindowIsKey = false
     @State private var appIsActive = NSApp.isActive
     @State private var didInitialAutostart = false
+    @AppStorage("player.alwaysOnTop") private var alwaysOnTop: Bool = false
 
     init(session: PlaybackSession, onRequestClose: (() -> Void)? = nil) {
         self.session = session
@@ -38,7 +39,9 @@ struct PlayerView: View {
                 session: session,
                 engine: session.engine,
                 isVisible: isOverlayVisible,
-                onRequestClose: requestClose
+                isAlwaysOnTop: alwaysOnTop,
+                onRequestClose: requestClose,
+                onToggleAlwaysOnTop: { alwaysOnTop.toggle() }
             )
 
             if session.isPreparing || session.engine.isBuffering {
@@ -52,10 +55,23 @@ struct PlayerView: View {
         }
         .background(
             PlayerHostWindowObserver(
-                onWindow: { session.engine.setHostWindow($0) },
+                onWindow: { window in
+                    session.engine.setHostWindow(window)
+                    applyAlwaysOnTop(alwaysOnTop, to: window)
+                },
                 onKeyStatus: { playerWindowIsKey = $0 }
             )
         )
+        .onChange(of: alwaysOnTop) { _, on in
+            applyAlwaysOnTop(on, to: session.engine.playerHostWindow)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            // macOS forces .normal level when entering fullscreen and does
+            // NOT restore custom levels on exit — reapply the user's choice.
+            guard let window = note.object as? NSWindow,
+                  window === session.engine.playerHostWindow else { return }
+            applyAlwaysOnTop(alwaysOnTop, to: window)
+        }
         .onAppear {
             appIsActive = NSApp.isActive
             revealOverlayAndScheduleHide()
@@ -94,6 +110,11 @@ struct PlayerView: View {
         }
         .onDisappear {
             cancelAutoHide()
+            // The PlayerWindowCoordinator reuses the same NSWindow across
+            // opens (`isReleasedWhenClosed = false`), so leaving the level
+            // at `.floating` would leak the pin into the next session
+            // before `onWindow` reapplies the user's stored choice. Reset.
+            session.engine.playerHostWindow?.level = .normal
             // Save the position BEFORE stopAndUnload — otherwise it will reset
             // engine.currentTime to 0, and progressStore will write a zero
             // position, overwriting the correct entry from windowWillClose.
@@ -173,5 +194,13 @@ struct PlayerView: View {
     private func cancelAutoHide() {
         autoHideTask?.cancel()
         autoHideTask = nil
+    }
+
+    /// Pin/unpin the player window above other apps.
+    /// Uses `.floating` (not `.modalPanel` / `.popUpMenu`) so the window can
+    /// still be moved, resized, focus other windows, and enter fullscreen.
+    private func applyAlwaysOnTop(_ on: Bool, to window: NSWindow?) {
+        guard let window else { return }
+        window.level = on ? .floating : .normal
     }
 }
