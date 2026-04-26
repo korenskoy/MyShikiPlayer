@@ -261,10 +261,14 @@ struct KodikVideoLinksResolver {
     }
 
     /// Parses Kodik's `parseSkipButtons("00:00-01:30,21:00-22:30","...")`
-    /// payload. The first comma-separated pair is the opening, the second is
-    /// the ending. Extra pairs are ignored. Pairs with `start >= end` are
-    /// treated as invalid and dropped. A single-pair payload keeps the
-    /// historical behaviour: it is returned as `opening`.
+    /// payload. With two pairs, the first is the opening and the second is
+    /// the ending; extra pairs are ignored. With a single pair, we don't know
+    /// the episode duration here, so we use a positional heuristic: a range
+    /// that starts past `singleRangeOpeningCutoffSeconds` (5 min) cannot be
+    /// an opening — anime openings always sit at the very start of the
+    /// episode — so it is classified as the ending. This restores the
+    /// historical behaviour for shows that only mark the ending.
+    /// Pairs with `start >= end` are dropped as invalid.
     private func parseSkipRanges(
         from page: String
     ) -> (opening: ClosedRange<Double>?, ending: ClosedRange<Double>?) {
@@ -279,7 +283,7 @@ struct KodikVideoLinksResolver {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .prefix(2)
-        let parsed: [ClosedRange<Double>?] = pairs.map { token in
+        let parsed: [ClosedRange<Double>] = pairs.compactMap { token in
             let parts = token.split(separator: "-")
             guard parts.count == 2,
                   let start = parseTimeToken(String(parts[0])),
@@ -289,10 +293,22 @@ struct KodikVideoLinksResolver {
             }
             return start...end
         }
-        let opening = parsed.indices.contains(0) ? parsed[0] : nil
-        let ending = parsed.indices.contains(1) ? parsed[1] : nil
-        return (opening, ending)
+        if parsed.count >= 2 {
+            return (parsed[0], parsed[1])
+        }
+        guard let only = parsed.first else {
+            return (nil, nil)
+        }
+        if only.lowerBound >= Self.singleRangeOpeningCutoffSeconds {
+            return (nil, only)
+        }
+        return (only, nil)
     }
+
+    /// Anime openings start at 0:00 (sometimes after a brief cold-open of
+    /// well under a minute) and never extend past 5 minutes. A single-pair
+    /// payload starting later than this cutoff is therefore an ending.
+    private static let singleRangeOpeningCutoffSeconds: Double = 300
 
     private func parseTimeToken(_ value: String) -> Double? {
         let token = value.trimmingCharacters(in: .whitespacesAndNewlines)

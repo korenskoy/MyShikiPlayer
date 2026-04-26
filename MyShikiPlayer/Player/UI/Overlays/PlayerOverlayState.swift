@@ -11,7 +11,7 @@ import Foundation
 import SwiftUI
 
 struct PlayerChapter: Identifiable, Hashable {
-    enum Kind { case opening, partA, ending, partB, preview }
+    typealias Kind = PlayerSegmentKind
     let id: String
     let label: String
     let start: Double

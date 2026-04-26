@@ -97,17 +97,18 @@ final class PlaybackSession: ObservableObject {
     /// session. Prevents the user from being "trapped" if they manually rewind
     /// back into an opening they already skipped past. Cleared on episode /
     /// source switches via `resetAutoSkipFlags()`.
-    private enum AutoSkipKind: Hashable { case opening, ending }
     private var firedAutoSkips: Set<AutoSkipKey> = []
     private struct AutoSkipKey: Hashable {
         let episode: Int
-        let kind: AutoSkipKind
+        let kind: PlayerSegmentKind
     }
-    /// Snapshot of `currentTime` at the moment auto-skip last fired. Used to
-    /// guard against the periodic observer re-entering the range while the
-    /// AVPlayer is still completing the seek (the post-seek `currentTime` may
-    /// briefly land slightly before `upperBound`).
-    private var lastAutoSkipTriggerTime: Double = -1
+    /// Cached mirror of `UserDefaults[SettingsKeys.autoSkipChapters]`. Refreshed
+    /// only when UserDefaults actually changes — the auto-skip tick runs ~4x
+    /// per second and reading the default each time is wasteful even though
+    /// the values are in-process cached.
+    private var autoSkipEnabled: Bool = UserDefaults.standard.bool(
+        forKey: SettingsKeys.autoSkipChapters
+    )
 
     init(sourceRegistry: SourceRegistry = .live, progressStore: WatchProgressStore? = nil) {
         self.sourceRegistry = sourceRegistry
@@ -126,6 +127,17 @@ final class PlaybackSession: ObservableObject {
             .sink { [weak self] _ in
                 self?.maybeTriggerPrefetch()
                 self?.maybeAutoSkipSection()
+            }
+            .store(in: &cancellables)
+        // Refresh the cached toggle only when UserDefaults actually changes.
+        // didChangeNotification fires for any key in the suite — that is fine,
+        // it still happens orders of magnitude less often than the playback tick.
+        NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+            .sink { [weak self] _ in
+                self?.autoSkipEnabled = UserDefaults.standard.bool(
+                    forKey: SettingsKeys.autoSkipChapters
+                )
             }
             .store(in: &cancellables)
     }
@@ -653,7 +665,6 @@ extension PlaybackSession {
     /// trigger again on the new context.
     func resetAutoSkipFlags() {
         firedAutoSkips.removeAll()
-        lastAutoSkipTriggerTime = -1
     }
 
     /// Periodic-tick handler that fires from the same `engine.$currentTime`
@@ -662,7 +673,7 @@ extension PlaybackSession {
     /// once per episode per kind. Manual rewinds back into an already-skipped
     /// range will NOT re-fire (see `firedAutoSkips`).
     func maybeAutoSkipSection() {
-        guard UserDefaults.standard.bool(forKey: "settings.autoSkipIntros") else { return }
+        guard autoSkipEnabled else { return }
         // AVPlayer reports `currentTime` in 0.25s increments; the seek itself
         // can land a few hundred ms before `upperBound`. Without a guard the
         // tick that fires immediately after the seek would re-evaluate the
@@ -688,7 +699,7 @@ extension PlaybackSession {
     private func shouldAutoSkip(
         range: ClosedRange<Double>,
         current: Double,
-        kind: AutoSkipKind,
+        kind: PlayerSegmentKind,
         episode: Int
     ) -> Bool {
         let key = AutoSkipKey(episode: episode, kind: kind)
@@ -706,16 +717,14 @@ extension PlaybackSession {
 
     private func performAutoSkip(
         toUpperBoundOf range: ClosedRange<Double>,
-        kind: AutoSkipKind,
+        kind: PlayerSegmentKind,
         episode: Int
     ) {
         let target = min(range.upperBound, max(engine.duration - 1, 0))
         firedAutoSkips.insert(AutoSkipKey(episode: episode, kind: kind))
-        lastAutoSkipTriggerTime = engine.currentTime
         engine.seek(seconds: target)
-        let kindLabel: String = (kind == .opening) ? "opening" : "ending"
         NetworkLogStore.shared.logUIEvent(
-            "watch_auto_skip kind=\(kindLabel) episode=\(episode)"
+            "watch_auto_skip kind=\(kind.rawValue) episode=\(episode)"
             + " from=\(Int(engine.currentTime)) to=\(Int(target))"
         )
     }

@@ -14,7 +14,7 @@ struct SettingsView: View {
     @StateObject private var hostsModel = SettingsHostsModel()
     @AppStorage("kodik.apiToken") private var kodikApiToken: String = ""
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
-    @AppStorage("settings.autoSkipIntros") private var autoSkipIntros: Bool = false
+    @AppStorage(SettingsKeys.autoSkipChapters) private var autoSkipChapters: Bool = false
     @State private var draftKodikToken: String = ""
     @State private var tokenAutosaveFeedback = false
     @State private var repoCacheFlash = false
@@ -184,7 +184,7 @@ struct SettingsView: View {
             title: "Плеер",
             description: "Автоматически пропускать опенинг и эндинг, если в источнике размечены тайм-коды."
         ) {
-            Toggle(isOn: $autoSkipIntros) {
+            Toggle(isOn: $autoSkipChapters) {
                 Text("Автопропуск опенинга и эндинга")
                     .font(.dsBody(13))
                     .foregroundStyle(theme.fg)
