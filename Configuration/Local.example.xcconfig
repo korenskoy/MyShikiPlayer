@@ -1,0 +1,11 @@
+// Copy this file to Local.xcconfig in the same folder and fill in values.
+// Local.xcconfig is gitignored — it stores per-machine signing overrides
+// that should never end up in the public repository.
+
+// Apple Developer Team ID (Xcode → Settings → Accounts → your team).
+// Required for signed builds; can be left empty for "Sign to Run Locally".
+DEVELOPMENT_TEAM =
+
+// Optional: override the bundle identifier on developer machines (handy for
+// running an unsigned fork side-by-side with the official build).
+// PRODUCT_BUNDLE_IDENTIFIER =

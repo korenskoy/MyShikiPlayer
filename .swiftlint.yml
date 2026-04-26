@@ -1,0 +1,55 @@
+# https://github.com/realm/SwiftLint
+# Install: brew install swiftlint
+# CLI: swiftlint  |  fix: swiftlint --fix
+#
+# Xcode runs SwiftLint in a "Run Script" phase. The app target sets
+# ENABLE_USER_SCRIPT_SANDBOXING = NO so the linter can read sources.
+
+included:
+  - MyShikiPlayer
+  - MyShikiPlayerTests
+  - MyShikiPlayerUITests
+
+excluded:
+  - .build
+  - DerivedData
+
+line_length:
+  warning: 140
+  error: 200
+  ignores_urls: true
+
+identifier_name:
+  min_length: 1
+  max_length: 50
+  excluded:
+    - id
+    - x
+    - y
+    - c
+    - d
+    - e
+    - q
+    - r
+
+type_name:
+  min_length: 3
+
+disabled_rules:
+  - todo
+  - trailing_comma
+  - implicit_optional_initialization
+  - unneeded_synthesized_initializer
+  - static_over_final_class
+
+opt_in_rules:
+  - empty_count
+  - closure_spacing
+  - explicit_init
+  - fatal_error_message
+  - overridden_super_call
+
+cyclomatic_complexity:
+  warning: 22
+
+reporter: xcode

@@ -1,0 +1,6 @@
+{
+  "data": null,
+  "errors": [
+    { "message": "Field 'bad' doesn't exist on type 'Query'" }
+  ]
+}

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>ru.korenskoy.MyShikiPlayer.oauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>myshikiplayer</string>
+			</array>
+		</dict>
+	</array>
+	<key>ShikimoriBaseURL</key>
+	<string>$(SHIKIMORI_BASE_URL)</string>
+	<key>ShikimoriOAuthBaseURL</key>
+	<string>$(SHIKIMORI_OAUTH_BASE_URL)</string>
+	<key>ShikimoriClientID</key>
+	<string>$(SHIKIMORI_CLIENT_ID)</string>
+	<key>ShikimoriClientSecret</key>
+	<string>$(SHIKIMORI_CLIENT_SECRET)</string>
+	<key>ShikimoriRedirectURI</key>
+	<string>$(SHIKIMORI_REDIRECT_URI)</string>
+	<key>ShikimoriUserAgentAppName</key>
+	<string>$(SHIKIMORI_USER_AGENT_APP_NAME)</string>
+	<key>KodikAPIToken</key>
+	<string>$(KODIK_API_TOKEN)</string>
+</dict>
+</plist>

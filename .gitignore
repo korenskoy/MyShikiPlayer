@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcuserstate
+**/*.xcuserstate
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# OAuth secrets (never commit real values)
+Configuration/Secrets.xcconfig
+**/Secrets.xcconfig
+*.secret.xcconfig
+.env
+.env.local
+
+# Local-only signing / dev overrides (Apple Team ID, etc.)
+Configuration/Local.xcconfig
+**/Local.xcconfig
+
+# Certificates and provisioning profiles
+*.pem
+*.p12
+*.cer
+*.key
+*.mobileprovision
+
+# Private docs and design reference (kept locally, not published)
+docs/
+
+# Claude Code workspaces
+.claude/

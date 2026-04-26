@@ -1,0 +1,34 @@
+{
+  "data": {
+    "animes": [
+      {
+        "id": 1,
+        "malId": 1,
+        "name": "Test",
+        "russian": "Тест",
+        "licenseNameRu": null,
+        "english": null,
+        "japanese": null,
+        "synonyms": [],
+        "kind": "tv",
+        "rating": "pg_13",
+        "score": 7.5,
+        "status": "released",
+        "episodes": 12,
+        "episodesAired": 12,
+        "duration": 24,
+        "airedOn": null,
+        "releasedOn": null,
+        "url": "/animes/1-test",
+        "season": null,
+        "nextEpisodeAt": null,
+        "isCensored": false,
+        "poster": { "id": "1", "originalUrl": "https://example.com/o.jpg", "mainUrl": "https://example.com/m.jpg" },
+        "externalLinks": [],
+        "genres": [],
+        "studios": []
+      }
+    ]
+  },
+  "errors": null
+}

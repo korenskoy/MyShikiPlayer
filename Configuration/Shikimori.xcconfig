@@ -1,0 +1,21 @@
+// Base build settings for Shikimori API.
+// Defaults go first, then local Secrets.xcconfig can override.
+SHIKIMORI_CLIENT_ID =
+SHIKIMORI_CLIENT_SECRET =
+// Default API host ($() prevents // starting an xcconfig comment)
+SHIKIMORI_BASE_URL = https:/$()/shikimori.me
+// OAuth token endpoint host (docs use shikimori.one)
+SHIKIMORI_OAUTH_BASE_URL = https:/$()/shikimori.one
+
+SHIKIMORI_REDIRECT_URI = myshikiplayer:/$()/oauth
+
+// Must match OAuth application name (User-Agent requirement)
+SHIKIMORI_USER_AGENT_APP_NAME = MyShikiPlayer
+
+// Kodik /search API token. Empty by default; bundle real value via Secrets.xcconfig.
+// At runtime, UserDefaults("kodik.apiToken") set from Settings UI overrides this.
+KODIK_API_TOKEN = 
+
+#include "Version.xcconfig"
+#include? "Secrets.xcconfig"
+#include? "Local.xcconfig"
