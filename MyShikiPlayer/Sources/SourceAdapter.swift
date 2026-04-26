@@ -23,6 +23,7 @@ struct SourceStream: Hashable {
     let studioId: Int?
     let url: URL
     let openingRangeSeconds: ClosedRange<Double>?
+    let endingRangeSeconds: ClosedRange<Double>?
 }
 
 /// Studio entry shown in the player's DUB picker. Lives independently of

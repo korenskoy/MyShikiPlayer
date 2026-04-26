@@ -185,7 +185,8 @@ struct KodikAdapter: SourceAdapter {
                 studioLabel: material.translation.title,
                 studioId: material.translation.id,
                 url: url,
-                openingRangeSeconds: pair.openingRangeSeconds
+                openingRangeSeconds: pair.openingRangeSeconds,
+                endingRangeSeconds: pair.endingRangeSeconds
             )
         }
         await log("resolve_translation_ok translation_id=\(material.translation.id) streams=\(mapped.count)")

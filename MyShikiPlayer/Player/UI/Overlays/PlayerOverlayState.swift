@@ -22,20 +22,40 @@ struct PlayerChapter: Identifiable, Hashable {
 }
 
 enum PlayerChapterFactory {
-    /// Until we have real chapters from sources, we only mark the opening.
-    /// If `opening` is known → `[opening]`, otherwise `[]`.
-    /// The scrub bar must render both cases correctly: a plain track or a track with a highlighted span.
-    static func chapters(duration: Double, opening: ClosedRange<Double>?) -> [PlayerChapter] {
-        guard duration > 0, let opening else { return [] }
-        return [
-            PlayerChapter(
-                id: "op",
-                label: "ОП",
-                start: opening.lowerBound,
-                end: min(opening.upperBound, duration),
-                kind: .opening
+    /// Builds up to two chapters from the source's skip ranges (opening + ending).
+    /// Each chapter is included only when the corresponding range is known and
+    /// inside the playable duration window. The scrub bar copes with any subset
+    /// (none / opening only / ending only / both).
+    static func chapters(
+        duration: Double,
+        opening: ClosedRange<Double>?,
+        ending: ClosedRange<Double>?
+    ) -> [PlayerChapter] {
+        guard duration > 0 else { return [] }
+        var out: [PlayerChapter] = []
+        if let opening {
+            out.append(
+                PlayerChapter(
+                    id: "op",
+                    label: "ОП",
+                    start: opening.lowerBound,
+                    end: min(opening.upperBound, duration),
+                    kind: .opening
+                )
             )
-        ]
+        }
+        if let ending {
+            out.append(
+                PlayerChapter(
+                    id: "ed",
+                    label: "ЭД",
+                    start: ending.lowerBound,
+                    end: min(ending.upperBound, duration),
+                    kind: .ending
+                )
+            )
+        }
+        return out
     }
 }
 

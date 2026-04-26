@@ -14,6 +14,7 @@ struct SettingsView: View {
     @StateObject private var hostsModel = SettingsHostsModel()
     @AppStorage("kodik.apiToken") private var kodikApiToken: String = ""
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
+    @AppStorage("settings.autoSkipIntros") private var autoSkipIntros: Bool = false
     @State private var draftKodikToken: String = ""
     @State private var tokenAutosaveFeedback = false
     @State private var repoCacheFlash = false
@@ -29,6 +30,7 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     appearanceSection
                     hostsSection
+                    playerSection
                     kodikSection
                     diagnosticsSection
                     cacheSection
@@ -172,6 +174,22 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(isValid ? Color.clear : .red)
                 .frame(height: 14, alignment: .leading)
+        }
+    }
+
+    // MARK: - Player
+
+    private var playerSection: some View {
+        SettingsSection(
+            title: "Плеер",
+            description: "Автоматически пропускать опенинг и эндинг, если в источнике размечены тайм-коды."
+        ) {
+            Toggle(isOn: $autoSkipIntros) {
+                Text("Автопропуск опенинга и эндинга")
+                    .font(.dsBody(13))
+                    .foregroundStyle(theme.fg)
+            }
+            .toggleStyle(.switch)
         }
     }
 

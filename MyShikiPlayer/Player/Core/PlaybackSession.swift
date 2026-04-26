@@ -31,6 +31,7 @@ final class PlaybackSession: ObservableObject {
         /// Studio identifier on the source side (Kodik translation.id, etc.).
         let studioId: Int?
         let openingRangeSeconds: ClosedRange<Double>?
+        let endingRangeSeconds: ClosedRange<Double>?
         let episode: Int
         let title: String
     }
@@ -92,6 +93,22 @@ final class PlaybackSession: ObservableObject {
     /// Reset by `prepare()` (new title / fresh load).
     private var reportedWatchedEpisodes: Set<Int> = []
 
+    /// (Episode, range kind) pairs for which auto-skip already fired in this
+    /// session. Prevents the user from being "trapped" if they manually rewind
+    /// back into an opening they already skipped past. Cleared on episode /
+    /// source switches via `resetAutoSkipFlags()`.
+    private enum AutoSkipKind: Hashable { case opening, ending }
+    private var firedAutoSkips: Set<AutoSkipKey> = []
+    private struct AutoSkipKey: Hashable {
+        let episode: Int
+        let kind: AutoSkipKind
+    }
+    /// Snapshot of `currentTime` at the moment auto-skip last fired. Used to
+    /// guard against the periodic observer re-entering the range while the
+    /// AVPlayer is still completing the seek (the post-seek `currentTime` may
+    /// briefly land slightly before `upperBound`).
+    private var lastAutoSkipTriggerTime: Double = -1
+
     init(sourceRegistry: SourceRegistry = .live, progressStore: WatchProgressStore? = nil) {
         self.sourceRegistry = sourceRegistry
         self.resumeCoordinator = ResumeCoordinator(progressStore: progressStore ?? WatchProgressStore())
@@ -108,6 +125,7 @@ final class PlaybackSession: ObservableObject {
         engine.$currentTime
             .sink { [weak self] _ in
                 self?.maybeTriggerPrefetch()
+                self?.maybeAutoSkipSection()
             }
             .store(in: &cancellables)
     }
@@ -135,6 +153,7 @@ final class PlaybackSession: ObservableObject {
             prefetchCoordinator.resetForNewTitle()
         }
         prefetchCoordinator.resetTriggerFlag()
+        resetAutoSkipFlags()
         currentShikimoriId = shikimoriId
         currentEpisode = episode
         self.preferredTranslationId = preferredTranslationId
@@ -193,6 +212,12 @@ final class PlaybackSession: ObservableObject {
     }
 
     func select(source: MediaSource, autoLoadPlayerItem: Bool = false) {
+        // A new source may carry different opening/ending ranges (different
+        // studio, different quality). Drop the per-episode auto-skip flags so
+        // the new ranges get a fresh chance to fire.
+        if selectedSource?.streamURL != source.streamURL {
+            resetAutoSkipFlags()
+        }
         selectedSource = source
         diagnostics.log("selected \(source.provider.rawValue) \(source.qualityLabel)")
         if autoLoadPlayerItem {
@@ -327,6 +352,10 @@ final class PlaybackSession: ObservableObject {
         selectedSource?.openingRangeSeconds
     }
 
+    var currentEndingRangeSeconds: ClosedRange<Double>? {
+        selectedSource?.endingRangeSeconds
+    }
+
     var canSelectPreviousEpisode: Bool {
         currentEpisode > 1 && currentShikimoriId != nil && !isPreparing
     }
@@ -396,6 +425,7 @@ extension PlaybackSession {
                     studioLabel: source.studioLabel,
                     studioId: source.studioId,
                     openingRangeSeconds: source.openingRangeSeconds,
+                    endingRangeSeconds: source.endingRangeSeconds,
                     episode: source.episode,
                     title: title
                 )
@@ -439,6 +469,7 @@ extension PlaybackSession {
                     studioLabel: stream.studioLabel,
                     studioId: stream.studioId,
                     openingRangeSeconds: stream.openingRangeSeconds,
+                    endingRangeSeconds: stream.endingRangeSeconds,
                     episode: episode,
                     title: title
                 )
@@ -542,6 +573,7 @@ extension PlaybackSession {
                     studioLabel: stream.studioLabel,
                     studioId: stream.studioId,
                     openingRangeSeconds: stream.openingRangeSeconds,
+                    endingRangeSeconds: stream.endingRangeSeconds,
                     episode: currentEpisode,
                     title: title
                 )
@@ -609,6 +641,82 @@ extension PlaybackSession {
             shikimoriId: shikimoriId,
             title: selectedSource?.title ?? "",
             preferredTranslationId: preferredTranslationId
+        )
+    }
+}
+
+// MARK: - Auto skip (opening / ending)
+
+extension PlaybackSession {
+    /// Reset the per-episode auto-skip "already fired" flags. Called whenever
+    /// the episode or selected source changes so a re-entry into a range can
+    /// trigger again on the new context.
+    func resetAutoSkipFlags() {
+        firedAutoSkips.removeAll()
+        lastAutoSkipTriggerTime = -1
+    }
+
+    /// Periodic-tick handler that fires from the same `engine.$currentTime`
+    /// publisher used by prefetch. When the user has enabled the toggle in
+    /// Settings, jumps to the end of the active opening / ending range exactly
+    /// once per episode per kind. Manual rewinds back into an already-skipped
+    /// range will NOT re-fire (see `firedAutoSkips`).
+    func maybeAutoSkipSection() {
+        guard UserDefaults.standard.bool(forKey: "settings.autoSkipIntros") else { return }
+        // AVPlayer reports `currentTime` in 0.25s increments; the seek itself
+        // can land a few hundred ms before `upperBound`. Without a guard the
+        // tick that fires immediately after the seek would re-evaluate the
+        // same range and try to trigger again.
+        let now = engine.currentTime
+        guard now.isFinite, now >= 0 else { return }
+        let duration = engine.duration
+        guard duration > 0 else { return }
+        let episode = currentEpisode
+        // Opening first — both ranges should never overlap in practice but if
+        // they do, opening wins (matches the manual-skip button precedence).
+        if let opening = currentOpeningRangeSeconds,
+           shouldAutoSkip(range: opening, current: now, kind: .opening, episode: episode) {
+            performAutoSkip(toUpperBoundOf: opening, kind: .opening, episode: episode)
+            return
+        }
+        if let ending = currentEndingRangeSeconds,
+           shouldAutoSkip(range: ending, current: now, kind: .ending, episode: episode) {
+            performAutoSkip(toUpperBoundOf: ending, kind: .ending, episode: episode)
+        }
+    }
+
+    private func shouldAutoSkip(
+        range: ClosedRange<Double>,
+        current: Double,
+        kind: AutoSkipKind,
+        episode: Int
+    ) -> Bool {
+        let key = AutoSkipKey(episode: episode, kind: kind)
+        if firedAutoSkips.contains(key) { return false }
+        // Tolerance window: AVPlayer seek lands a few frames short of the
+        // requested target. Without the 0.5s buffer, the tick right after the
+        // seek would re-enter the range and the guard above would catch it on
+        // the second tick — but skipping that wasted iteration keeps the log
+        // clean and avoids flicker.
+        guard current >= range.lowerBound, current <= max(range.upperBound - 0.5, range.lowerBound) else {
+            return false
+        }
+        return true
+    }
+
+    private func performAutoSkip(
+        toUpperBoundOf range: ClosedRange<Double>,
+        kind: AutoSkipKind,
+        episode: Int
+    ) {
+        let target = min(range.upperBound, max(engine.duration - 1, 0))
+        firedAutoSkips.insert(AutoSkipKey(episode: episode, kind: kind))
+        lastAutoSkipTriggerTime = engine.currentTime
+        engine.seek(seconds: target)
+        let kindLabel: String = (kind == .opening) ? "opening" : "ending"
+        NetworkLogStore.shared.logUIEvent(
+            "watch_auto_skip kind=\(kindLabel) episode=\(episode)"
+            + " from=\(Int(engine.currentTime)) to=\(Int(target))"
         )
     }
 }

@@ -27,23 +27,31 @@ struct ClassicPlayerOverlay: View {
     private var chapters: [PlayerChapter] {
         PlayerChapterFactory.chapters(
             duration: engine.duration,
-            opening: session.currentOpeningRangeSeconds
+            opening: session.currentOpeningRangeSeconds,
+            ending: session.currentEndingRangeSeconds
         )
     }
 
-    private var isInOpening: Bool {
-        guard let range = session.currentOpeningRangeSeconds else { return false }
-        return range.contains(engine.currentTime)
+    /// Active skip range under the playhead: opening wins over ending when
+    /// both somehow overlap. Nil means the floating button must stay hidden.
+    private var activeSkipRange: (range: ClosedRange<Double>, kind: PlayerChapter.Kind)? {
+        let now = engine.currentTime
+        if let opening = session.currentOpeningRangeSeconds, opening.contains(now) {
+            return (opening, .opening)
+        }
+        if let ending = session.currentEndingRangeSeconds, ending.contains(now) {
+            return (ending, .ending)
+        }
+        return nil
     }
 
-    /// Kodik returns a single skip-range per video — it can be either an intro
-    /// or an ending (one of the two parseSkipButtons). If the start point is
-    /// in the second half of the video, it is almost certainly the ending.
     private var skipLabel: String {
-        guard let range = session.currentOpeningRangeSeconds, engine.duration > 0 else {
+        switch activeSkipRange?.kind {
+        case .ending:
+            return "Пропустить эндинг"
+        default:
             return "Пропустить опенинг"
         }
-        return range.lowerBound > engine.duration / 2 ? "Пропустить эндинг" : "Пропустить опенинг"
     }
 
     private var remainingSeconds: Double {
@@ -170,7 +178,7 @@ struct ClassicPlayerOverlay: View {
                             }
                         )
                     }
-                    if isInOpening {
+                    if activeSkipRange != nil {
                         SkipIntroButton(label: skipLabel, action: skipIntroAction)
                     }
                 }
@@ -185,9 +193,8 @@ struct ClassicPlayerOverlay: View {
     }
 
     private func skipIntroAction() {
-        guard let opening = session.currentOpeningRangeSeconds else { return }
-        guard opening.contains(engine.currentTime) else { return }
-        let target = min(opening.upperBound, max(engine.duration - 1, 0))
+        guard let active = activeSkipRange else { return }
+        let target = min(active.range.upperBound, max(engine.duration - 1, 0))
         engine.seek(seconds: target)
     }
 }

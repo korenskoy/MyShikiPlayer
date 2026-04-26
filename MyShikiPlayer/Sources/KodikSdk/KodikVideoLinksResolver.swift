@@ -11,6 +11,7 @@ struct KodikVideoLinksResolver {
         let quality: String
         let urlString: String
         let openingRangeSeconds: ClosedRange<Double>?
+        let endingRangeSeconds: ClosedRange<Double>?
     }
 
     let session: URLSession
@@ -41,11 +42,18 @@ struct KodikVideoLinksResolver {
         await log("resolve_page_response bytes=\(page.utf8.count) preview=\(preview(page, max: 260))")
         let hasSkipMarker = page.contains("parseSkipButton(") || page.contains("parseSkipButtons(")
         await log("resolve_page_skip_marker present=\(hasSkipMarker)")
-        let openingRange = parseOpeningRange(from: page)
+        let skipRanges = parseSkipRanges(from: page)
+        let openingRange = skipRanges.opening
+        let endingRange = skipRanges.ending
         if let openingRange {
             await log("resolve_opening_range start=\(Int(openingRange.lowerBound)) end=\(Int(openingRange.upperBound))")
         } else {
             await log("resolve_opening_range none")
+        }
+        if let endingRange {
+            await log("resolve_ending_range start=\(Int(endingRange.lowerBound)) end=\(Int(endingRange.upperBound))")
+        } else {
+            await log("resolve_ending_range none")
         }
         let playerSinglePath = firstMatch(in: page, pattern: #"src="(?<link>/assets/js/app\.player_single\.[a-z0-9]+\.js)""#, group: "link")
 
@@ -86,7 +94,14 @@ struct KodikVideoLinksResolver {
                     continue
                 }
                 decodedByStrategy[decoded.strategy, default: 0] += 1
-                out.append(ResolvedLink(quality: quality, urlString: decoded.urlString, openingRangeSeconds: openingRange))
+                out.append(
+                    ResolvedLink(
+                        quality: quality,
+                        urlString: decoded.urlString,
+                        openingRangeSeconds: openingRange,
+                        endingRangeSeconds: endingRange
+                    )
+                )
             }
         }
 
@@ -245,23 +260,38 @@ struct KodikVideoLinksResolver {
         return nil
     }
 
-    private func parseOpeningRange(from page: String) -> ClosedRange<Double>? {
+    /// Parses Kodik's `parseSkipButtons("00:00-01:30,21:00-22:30","...")`
+    /// payload. The first comma-separated pair is the opening, the second is
+    /// the ending. Extra pairs are ignored. Pairs with `start >= end` are
+    /// treated as invalid and dropped. A single-pair payload keeps the
+    /// historical behaviour: it is returned as `opening`.
+    private func parseSkipRanges(
+        from page: String
+    ) -> (opening: ClosedRange<Double>?, ending: ClosedRange<Double>?) {
         guard let data = firstMatch(
             in: page,
             pattern: #"parseSkipButtons?\("(?<data>[^"]+)"\s*,\s*"(?<type>[^"]+)"\)"#,
             group: "data"
         ) else {
-            return nil
+            return (nil, nil)
         }
-        let firstTimeline = data.split(separator: ",").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let parts = firstTimeline.split(separator: "-")
-        guard parts.count == 2,
-              let start = parseTimeToken(String(parts[0])),
-              let end = parseTimeToken(String(parts[1])),
-              end > start else {
-            return nil
+        let pairs = data
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .prefix(2)
+        let parsed: [ClosedRange<Double>?] = pairs.map { token in
+            let parts = token.split(separator: "-")
+            guard parts.count == 2,
+                  let start = parseTimeToken(String(parts[0])),
+                  let end = parseTimeToken(String(parts[1])),
+                  end > start else {
+                return nil
+            }
+            return start...end
         }
-        return start...end
+        let opening = parsed.indices.contains(0) ? parsed[0] : nil
+        let ending = parsed.indices.contains(1) ? parsed[1] : nil
+        return (opening, ending)
     }
 
     private func parseTimeToken(_ value: String) -> Double? {

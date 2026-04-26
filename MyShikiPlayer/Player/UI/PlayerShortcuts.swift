@@ -37,12 +37,19 @@ struct PlayerShortcuts: ViewModifier {
                 return .handled
             }
             .onKeyPress(.init("s")) {
-                guard let opening = session.currentOpeningRangeSeconds,
-                      opening.lowerBound <= session.engine.currentTime,
-                      session.engine.currentTime < opening.upperBound else {
-                    return .ignored
+                let now = session.engine.currentTime
+                let active: ClosedRange<Double>?
+                if let opening = session.currentOpeningRangeSeconds,
+                   opening.lowerBound <= now, now < opening.upperBound {
+                    active = opening
+                } else if let ending = session.currentEndingRangeSeconds,
+                          ending.lowerBound <= now, now < ending.upperBound {
+                    active = ending
+                } else {
+                    active = nil
                 }
-                let target = min(opening.upperBound, max(session.engine.duration - 1, 0))
+                guard let active else { return .ignored }
+                let target = min(active.upperBound, max(session.engine.duration - 1, 0))
                 session.engine.seek(seconds: target)
                 return .handled
             }

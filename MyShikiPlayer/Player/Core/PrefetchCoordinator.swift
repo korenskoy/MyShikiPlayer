@@ -137,6 +137,7 @@ final class PrefetchCoordinator {
                             studioLabel: stream.studioLabel,
                             studioId: stream.studioId,
                             openingRangeSeconds: stream.openingRangeSeconds,
+                            endingRangeSeconds: stream.endingRangeSeconds,
                             episode: episode,
                             title: title
                         )
