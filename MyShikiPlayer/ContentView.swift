@@ -16,6 +16,7 @@ struct ContentView: View {
 
     @EnvironmentObject private var shikimoriAuth: ShikimoriAuthController
     @StateObject private var networkLogs = NetworkLogStore.shared
+    @StateObject private var updates = UpdateCheckService.shared
     @State private var isLogPanelExpanded = false
     @AppStorage("app.theme") private var themeId: String = AppTheme.paper.id
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
@@ -32,7 +33,7 @@ struct ContentView: View {
                 authView
                     .transition(.opacity)
             case .app:
-                AppShellView(auth: shikimoriAuth)
+                AppShellView(auth: shikimoriAuth, updates: updates)
                     .transition(.opacity)
             }
         }
@@ -49,6 +50,11 @@ struct ContentView: View {
         }
         .task {
             await shikimoriAuth.restoreSession()
+        }
+        .task {
+            // Run independently of the auth flow: a broken Shikimori session
+            // shouldn't hide a release that contains the fix for it.
+            await updates.checkInBackground()
         }
         .onDisappear {
             // Closing the main window should not leave OAuth callback wait hanging.

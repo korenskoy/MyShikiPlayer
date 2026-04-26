@@ -15,6 +15,7 @@ import SwiftUI
 
 struct AppShellView: View {
     @ObservedObject var auth: ShikimoriAuthController
+    @ObservedObject var updates: UpdateCheckService
     @StateObject private var navigation = NavigationState()
     @StateObject private var history = NavigationHistoryStore()
     @State private var isSearchPresented: Bool = false
@@ -31,6 +32,7 @@ struct AppShellView: View {
                     navigation: navigation,
                     auth: auth,
                     history: history,
+                    updates: updates,
                     isDetailVisible: searchOpenedDetailId != nil,
                     onGoBack: { applyHistoryStep(history.goBack()) },
                     onGoForward: { applyHistoryStep(history.goForward()) },

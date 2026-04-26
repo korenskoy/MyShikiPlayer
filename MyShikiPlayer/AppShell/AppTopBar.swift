@@ -15,6 +15,7 @@ struct AppTopBar: View {
     @ObservedObject var navigation: NavigationState
     @ObservedObject var auth: ShikimoriAuthController
     @ObservedObject var history: NavigationHistoryStore
+    @ObservedObject var updates: UpdateCheckService
     /// True while a detail page is on top of the branch view. The active tab
     /// highlight is hidden in that case — the user is "off-tab".
     var isDetailVisible: Bool = false
@@ -131,6 +132,7 @@ struct AppTopBar: View {
                 ProgressView()
                     .controlSize(.small)
             }
+            UpdateBannerButton(service: updates)
             avatarButton
         }
     }
