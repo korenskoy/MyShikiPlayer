@@ -9,7 +9,9 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.appTheme) private var theme
+    @Environment(\.openURL) private var openURL
     @ObservedObject var auth: ShikimoriAuthController
+    @ObservedObject private var updateService = UpdateCheckService.shared
     @StateObject private var cacheModel = ImageCacheSettingsModel()
     @StateObject private var hostsModel = SettingsHostsModel()
     @AppStorage("kodik.apiToken") private var kodikApiToken: String = ""
@@ -18,6 +20,8 @@ struct SettingsView: View {
     @State private var draftKodikToken: String = ""
     @State private var tokenAutosaveFeedback = false
     @State private var repoCacheFlash = false
+    @State private var isCheckingUpdates = false
+    @State private var updateCheckCompleted = false
     @FocusState private var kodikTokenFieldFocused: Bool
 
     let onSignOut: () -> Void
@@ -33,6 +37,7 @@ struct SettingsView: View {
                     playerSection
                     kodikSection
                     diagnosticsSection
+                    updatesSection
                     cacheSection
                     accountSection
                 }
@@ -241,6 +246,49 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Updates
+
+    private var updatesSection: some View {
+        SettingsSection(
+            title: "Обновления",
+            description: "Текущая версия: \(updateService.currentVersion). Автоматическая проверка GitHub Releases раз в 6 часов; кнопка ниже игнорирует ограничение."
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if let info = updateService.availableUpdate {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(theme.accent)
+                        Text("Доступна версия \(info.version)")
+                            .font(.dsBody(13, weight: .semibold))
+                            .foregroundStyle(theme.fg)
+                        Spacer()
+                        Button("Открыть релиз") {
+                            openURL(info.releaseURL)
+                            NetworkLogStore.shared.logUIEvent("update_open_release \(info.version)")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button("Проверить обновления") {
+                        runUpdateCheck()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isCheckingUpdates)
+
+                    if isCheckingUpdates {
+                        ProgressView().controlSize(.small)
+                    } else if updateCheckCompleted, updateService.availableUpdate == nil {
+                        Label("Актуальная версия", systemImage: "checkmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.green)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Cache
 
     private var cacheSection: some View {
@@ -311,6 +359,20 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private func runUpdateCheck() {
+        guard !isCheckingUpdates else { return }
+        isCheckingUpdates = true
+        updateCheckCompleted = false
+        NetworkLogStore.shared.logUIEvent("update_force_check_requested")
+        Task { @MainActor in
+            await updateService.checkInBackground(force: true)
+            isCheckingUpdates = false
+            updateCheckCompleted = true
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            updateCheckCompleted = false
+        }
+    }
 
     private func persistKodikToken() {
         let trimmed = draftKodikToken.trimmingCharacters(in: .whitespacesAndNewlines)
