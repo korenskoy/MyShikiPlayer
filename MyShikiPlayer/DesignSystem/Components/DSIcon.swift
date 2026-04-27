@@ -42,6 +42,8 @@ enum DSIconName: String, CaseIterable {
     case pip
     case pin
     case pinFill
+    case info
+    case refresh
 
     /// SF Symbol used for this icon.
     var symbolName: String {
@@ -84,6 +86,8 @@ enum DSIconName: String, CaseIterable {
         case .pip:       return "pip.enter"
         case .pin:       return "pin"
         case .pinFill:   return "pin.fill"
+        case .info:      return "info.circle"
+        case .refresh:   return "arrow.clockwise"
         }
     }
 }

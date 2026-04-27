@@ -91,7 +91,7 @@ struct SocialView: View {
                 Spacer()
                 Button(action: refreshActiveTab) {
                     HStack(spacing: 6) {
-                        DSIcon(name: .search, size: 13, weight: .semibold)
+                        DSIcon(name: .refresh, size: 13, weight: .semibold)
                         Text("Обновить")
                             .font(.dsBody(12, weight: .medium))
                     }

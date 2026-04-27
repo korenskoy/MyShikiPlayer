@@ -114,7 +114,7 @@ struct HomeHeroBillboard: View {
                     "Подробнее",
                     variant: .secondary,
                     size: .large,
-                    icon: .bookmark,
+                    icon: .info,
                     action: onOpenDetails
                 )
             }
