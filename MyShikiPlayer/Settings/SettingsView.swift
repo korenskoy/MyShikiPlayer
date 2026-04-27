@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage("kodik.apiToken") private var kodikApiToken: String = ""
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
     @AppStorage(SettingsKeys.autoSkipChapters) private var autoSkipChapters: Bool = false
+    @AppStorage("settings.hostsSectionCollapsed") private var hostsSectionCollapsed: Bool = true
     @State private var draftKodikToken: String = ""
     @State private var tokenAutosaveFeedback = false
     @State private var repoCacheFlash = false
@@ -104,7 +105,8 @@ struct SettingsView: View {
     private var hostsSection: some View {
         SettingsSection(
             title: "Домены",
-            description: "Свои хосты для Shikimori и Kodik. Изменения применятся при следующем запросе. Учётка не сбрасывается."
+            description: "Свои хосты для Shikimori и Kodik. Изменения применятся при следующем запросе. Учётка не сбрасывается.",
+            isCollapsed: $hostsSectionCollapsed
         ) {
             VStack(alignment: .leading, spacing: 12) {
                 hostField(
