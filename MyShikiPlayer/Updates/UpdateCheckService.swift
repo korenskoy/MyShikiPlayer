@@ -6,6 +6,12 @@
 //  for personal distribution, so we do NOT auto-download or install — we only
 //  surface "version X.Y.Z is available" and link to the release page.
 //
+//  Source: the public GitHub Releases Atom feed
+//  (https://github.com/<owner>/<repo>/releases.atom). Unlike api.github.com,
+//  it is served via GitHub's CDN and is not subject to the 60 req/h
+//  unauthenticated REST limit — important because many users share VPN
+//  egress IPs and would otherwise collectively hit 403.
+//
 
 import Combine
 import Foundation
@@ -33,21 +39,22 @@ final class UpdateCheckService: ObservableObject {
         static let skippedVersion = "updates.skippedVersion"
     }
 
+    /// Atom feed timestamps are RFC 3339 / ISO8601 without fractional seconds
+    /// (e.g. `2026-04-25T10:00:00Z`). Keep the formatter strict so we don't
+    /// silently mis-parse anything weird.
     private static let releasePublishedDateFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.formatOptions = [.withInternetDateTime]
         return formatter
     }()
-
-    private static let jsonDecoder = JSONDecoder()
 
     private let session: URLSession
     private let userDefaults: UserDefaults
     private var isChecking = false
 
-    /// Throttle so multiple window appearances within a session don't spam the
-    /// public API (60 req/h per IP unauthenticated). One real check per ~6h is
-    /// plenty for a "new release out" banner.
+    /// Throttle so multiple window appearances within a session don't refetch
+    /// the feed unnecessarily. One real check per ~6h is plenty for a
+    /// "new release out" banner.
     private let minCheckInterval: TimeInterval = 6 * 60 * 60
 
     init(session: URLSession = .shared, userDefaults: UserDefaults = .standard) {
@@ -70,11 +77,11 @@ final class UpdateCheckService: ObservableObject {
         isChecking = true
         defer { isChecking = false }
 
-        let endpoint = "https://api.github.com/repos/\(Self.repoOwner)/\(Self.repoName)/releases/latest"
+        let endpoint = "https://github.com/\(Self.repoOwner)/\(Self.repoName)/releases.atom"
         guard let url = URL(string: endpoint) else { return }
 
         var request = URLRequest(url: url, timeoutInterval: 10)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/atom+xml", forHTTPHeaderField: "Accept")
         request.setValue("MyShikiPlayer/\(currentVersion)", forHTTPHeaderField: "User-Agent")
 
         let startedAt = Date()
@@ -107,18 +114,17 @@ final class UpdateCheckService: ObservableObject {
         )
 
         // Stamp the timestamp regardless of HTTP outcome so a 404 (no
-        // releases yet) or 403 (rate limit) doesn't make us retry on every
+        // releases yet) or transient failure doesn't make us retry on every
         // window appearance.
         userDefaults.set(Date(), forKey: DefaultsKey.lastCheckAt)
 
         guard http?.statusCode == 200 else { return }
 
-        do {
-            let release = try Self.jsonDecoder.decode(GitHubRelease.self, from: data)
-            apply(release)
-        } catch {
-            NetworkLogStore.shared.logAppError("update_check_decode_failed: \(error.localizedDescription)")
+        guard let entry = ReleaseAtomParser.firstEntry(from: data) else {
+            NetworkLogStore.shared.logAppError("update_check_parse_failed: empty or invalid atom feed")
+            return
         }
+        apply(entry)
     }
 
     func skipCurrentlyOffered() {
@@ -130,12 +136,20 @@ final class UpdateCheckService: ObservableObject {
 
     // MARK: - Internal
 
-    private func apply(_ release: GitHubRelease) {
-        guard !release.draft, !release.prerelease else {
+    private func apply(_ entry: ReleaseAtomEntry) {
+        // The Atom feed exposes only published releases (drafts are private),
+        // but it does NOT distinguish prereleases from final releases. We
+        // approximate the old `release.prerelease` filter via tag convention.
+        guard let tag = entry.tag else {
             availableUpdate = nil
             return
         }
-        let normalized = Self.normalize(release.tagName)
+        if Self.isPrereleaseTag(tag) {
+            availableUpdate = nil
+            NetworkLogStore.shared.logUIEvent("update_skipped_prerelease \(tag)")
+            return
+        }
+        let normalized = Self.normalize(tag)
         guard Self.compareVersions(normalized, currentVersion) == .orderedDescending else {
             availableUpdate = nil
             return
@@ -148,21 +162,31 @@ final class UpdateCheckService: ObservableObject {
             availableUpdate = nil
             return
         }
-        let trimmedName = release.name?.trimmingCharacters(in: .whitespaces) ?? ""
-        let title = trimmedName.isEmpty ? release.tagName : trimmedName
-        let url = URL(string: release.htmlUrl)
+        let trimmedTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = trimmedTitle.isEmpty ? tag : trimmedTitle
+        let url = entry.url
             ?? URL(string: "https://github.com/\(Self.repoOwner)/\(Self.repoName)/releases")!
         availableUpdate = AvailableUpdate(
             version: normalized,
             displayName: title,
             releaseURL: url,
-            publishedAt: release.publishedAt.flatMap { Self.releasePublishedDateFormatter.date(from: $0) }
+            publishedAt: entry.updated.flatMap { Self.releasePublishedDateFormatter.date(from: $0) }
         )
         NetworkLogStore.shared.logUIEvent("update_available \(normalized)")
     }
 
     static func normalize(_ tag: String) -> String {
         tag.hasPrefix("v") || tag.hasPrefix("V") ? String(tag.dropFirst()) : tag
+    }
+
+    /// Recognise common prerelease tag suffixes — `-alpha`, `-beta`, `-rc`,
+    /// `-pre`, `-dev` (case-insensitive, word-bounded). Matches `v1.0.0-rc.1`,
+    /// `1.2-beta`, `2.0-DEV-3`; does not match `1.2.3-prefix-stable`.
+    static func isPrereleaseTag(_ tag: String) -> Bool {
+        tag.range(
+            of: #"-(alpha|beta|rc|pre|dev)\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     /// Component-wise numeric comparison so "1.10" > "1.2" works.
@@ -179,20 +203,104 @@ final class UpdateCheckService: ObservableObject {
     }
 }
 
-private struct GitHubRelease: Decodable {
-    let tagName: String
-    let name: String?
-    let htmlUrl: String
-    let draft: Bool
-    let prerelease: Bool
-    let publishedAt: String?
+/// One `<entry>` from a GitHub releases Atom feed, normalised to the bits we
+/// actually care about.
+private struct ReleaseAtomEntry {
+    let title: String
+    let url: URL?
+    /// Tag name extracted from the release URL (`.../releases/tag/<TAG>`).
+    /// `nil` if the URL doesn't match that shape.
+    let tag: String?
+    /// Raw RFC 3339 timestamp from `<updated>`, parsed by the caller.
+    let updated: String?
+}
 
-    enum CodingKeys: String, CodingKey {
-        case tagName = "tag_name"
-        case name
-        case htmlUrl = "html_url"
-        case draft
-        case prerelease
-        case publishedAt = "published_at"
+/// Streaming `XMLParser` delegate that returns the FIRST `<entry>` of a GitHub
+/// releases Atom feed and aborts. The feed is sorted newest-first, so the
+/// first entry is the latest release.
+private final class ReleaseAtomParser: NSObject, XMLParserDelegate {
+    static func firstEntry(from data: Data) -> ReleaseAtomEntry? {
+        let delegate = ReleaseAtomParser()
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.parse()
+        return delegate.firstEntry
+    }
+
+    private(set) var firstEntry: ReleaseAtomEntry?
+
+    private var inEntry = false
+    /// Track the current open-element path. Using a stack (rather than a
+    /// single string) means text after a nested close — e.g. `"baz"` in
+    /// `<title>foo<b>bar</b>baz</title>` — is still attributed to `<title>`.
+    private var elementStack: [String] = []
+    private var currentTitle = ""
+    private var currentHref = ""
+    private var currentUpdated = ""
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        elementStack.append(elementName)
+        if elementName == "entry" {
+            inEntry = true
+            currentTitle = ""
+            currentHref = ""
+            currentUpdated = ""
+            return
+        }
+        // GitHub's Atom feed has a single <link rel="alternate"> per entry
+        // pointing at the human-readable release page. Treat a missing rel
+        // as "alternate" per the Atom spec.
+        if inEntry, elementName == "link", let href = attributeDict["href"] {
+            let rel = attributeDict["rel"] ?? "alternate"
+            if rel == "alternate" {
+                currentHref = href
+            }
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard inEntry, let current = elementStack.last else { return }
+        switch current {
+        case "title": currentTitle += string
+        case "updated": currentUpdated += string
+        default: break
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        _ = elementStack.popLast()
+        if elementName == "entry" {
+            let url = URL(string: currentHref)
+            firstEntry = ReleaseAtomEntry(
+                title: currentTitle,
+                url: url,
+                tag: Self.extractTag(from: url),
+                updated: currentUpdated.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            // First entry is the newest one — bail out instead of walking the
+            // rest of the feed.
+            parser.abortParsing()
+        }
+    }
+
+    /// `https://github.com/<owner>/<repo>/releases/tag/<TAG>` → `<TAG>`.
+    private static func extractTag(from url: URL?) -> String? {
+        guard let url else { return nil }
+        let components = url.pathComponents
+        guard let tagIndex = components.firstIndex(of: "tag"),
+              tagIndex + 1 < components.count else { return nil }
+        let tag = components[tagIndex + 1]
+        return tag.isEmpty ? nil : tag
     }
 }
