@@ -160,7 +160,11 @@ struct AnimeDetailsView: View {
                 }
             }
 
-            if let description = vm.detail?.description, !description.isEmpty {
+            // Prefer the pre-rendered HTML — Shikimori already resolved entity
+            // names + image URLs there, saving us from re-resolving them via
+            // BBCode + html_body pairing.
+            if let description = vm.detail?.descriptionHtml?.nilIfEmpty
+                ?? vm.detail?.description?.nilIfEmpty {
                 DetailsSectionHeader(kicker: "SYNOPSIS", title: "Описание", action: nil)
                 DescriptionSection(rawDescription: description, onOpenAnimeId: onOpenAnimeId)
             }

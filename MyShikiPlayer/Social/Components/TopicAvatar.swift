@@ -2,7 +2,8 @@
 //  TopicAvatar.swift
 //  MyShikiPlayer
 //
-//  Square user avatar 32×32 (TopicCard) / 28×28 (CommentRow).
+//  Square user avatar — sized by callers (32pt in TopicCard / LinearPostRow,
+//  40pt in TopicDetailView hero).
 //  Expands UserImageSet / legacy `avatar` into a URL.
 //
 
@@ -27,9 +28,9 @@ struct TopicAvatar: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
                 .stroke(theme.line, lineWidth: 1)
         )
     }

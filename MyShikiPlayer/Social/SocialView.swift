@@ -6,30 +6,25 @@
 //  Discussions and reviews share the same mechanism (forum topics);
 //  friends is a separate stream (friends + histories).
 //
+//  Tab and topic state live in `SocialNavigationState` (owned by AppShell)
+//  so the global browser-style history can read/write them on goBack/goForward.
+//
 
 import SwiftUI
 
 struct SocialView: View {
     @Environment(\.appTheme) private var theme
     @ObservedObject var auth: ShikimoriAuthController
+    @ObservedObject var socialNav: SocialNavigationState
+    @ObservedObject var history: NavigationHistoryStore
     @StateObject private var vm = SocialViewModel()
-    @State private var selectedTopic: Topic?
 
     let onOpenAnime: (Int) -> Void
 
     var body: some View {
         Group {
-            if let topic = selectedTopic, let config = auth.configuration {
-                TopicDetailView(
-                    configuration: config,
-                    topic: topic,
-                    onClose: closeDetail,
-                    onOpenAnime: { id in
-                        selectedTopic = nil
-                        onOpenAnime(id)
-                    }
-                )
-                .id(topic.id)
+            if socialNav.isTopicOpen, let config = auth.configuration {
+                topicDetail(config: config)
             } else {
                 feedView
             }
@@ -38,17 +33,51 @@ struct SocialView: View {
         .task(id: auth.profile?.id) {
             await loadActiveTab()
         }
-        .onChange(of: vm.selectedTab) { _, _ in
+        .onChange(of: socialNav.selectedTab) { _, newTab in
             Task { await loadActiveTab() }
+            guard !history.isNavigating else { return }
+            history.push(.socialTab(newTab))
         }
-        .overlay {
-            if selectedTopic != nil {
-                Button { closeDetail() } label: { EmptyView() }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .frame(width: 0, height: 0)
-                    .opacity(0)
-                    .accessibilityHidden(true)
-            }
+        .onChange(of: socialNav.openedTopicId) { _, newId in
+            guard !history.isNavigating else { return }
+            guard let id = newId else { return }
+            history.push(.socialTopic(id: id, title: socialNav.openedTopicTitle))
+        }
+    }
+
+    // MARK: - Topic detail
+
+    @ViewBuilder
+    private func topicDetail(config: ShikimoriConfiguration) -> some View {
+        if let seed = socialNav.openedTopicSeed {
+            TopicDetailView(
+                configuration: config,
+                topic: seed,
+                onClose: { socialNav.closeTopic() },
+                onOpenAnime: { id in
+                    socialNav.closeTopic()
+                    onOpenAnime(id)
+                },
+                onTitleResolved: { id, title in
+                    history.updateSocialTopicTitle(id: id, title: title)
+                }
+            )
+            .id(seed.id)
+        } else if let id = socialNav.restoredTopicId {
+            TopicDetailView(
+                configuration: config,
+                topicId: id,
+                title: socialNav.restoredTopicTitle,
+                onClose: { socialNav.closeTopic() },
+                onOpenAnime: { animeId in
+                    socialNav.closeTopic()
+                    onOpenAnime(animeId)
+                },
+                onTitleResolved: { topicId, title in
+                    history.updateSocialTopicTitle(id: topicId, title: title)
+                }
+            )
+            .id(id)
         }
     }
 
@@ -56,7 +85,7 @@ struct SocialView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                SocialTabBar(selected: $vm.selectedTab)
+                SocialTabBar(selected: $socialNav.selectedTab)
                     .padding(.top, 18)
                     .padding(.bottom, 16)
                 tabContent
@@ -66,12 +95,6 @@ struct SocialView: View {
             .padding(.top, 24)
             .frame(maxWidth: 820)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func closeDetail() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            selectedTopic = nil
         }
     }
 
@@ -116,7 +139,7 @@ struct SocialView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        switch vm.selectedTab {
+        switch socialNav.selectedTab {
         case .friends:     friendsContent
         case .discussions: forumContent(state: vm.discussions, tab: .discussions)
         case .reviews:     forumContent(state: vm.reviews, tab: .reviews)
@@ -161,7 +184,7 @@ struct SocialView: View {
         } else {
             LazyVStack(alignment: .leading, spacing: 12) {
                 ForEach(state.topics, id: \.id) { topic in
-                    TopicCard(topic: topic) { selectedTopic = topic }
+                    TopicCard(topic: topic) { socialNav.openTopic(topic) }
                 }
                 loadMoreFooter(state: state, tab: tab)
             }
@@ -258,24 +281,24 @@ struct SocialView: View {
 
     private func loadActiveTab() async {
         guard let config = auth.configuration else { return }
-        switch vm.selectedTab {
+        switch socialNav.selectedTab {
         case .friends:
             guard let userId = auth.profile?.id else { return }
             await vm.reloadFriends(configuration: config, userId: userId)
         case .discussions, .reviews:
-            await vm.reloadForumFeed(configuration: config, tab: vm.selectedTab)
+            await vm.reloadForumFeed(configuration: config, tab: socialNav.selectedTab)
         }
     }
 
     private func refreshActiveTab() {
         Task {
             guard let config = auth.configuration else { return }
-            switch vm.selectedTab {
+            switch socialNav.selectedTab {
             case .friends:
                 guard let userId = auth.profile?.id else { return }
                 await vm.reloadFriends(configuration: config, userId: userId, forceRefresh: true)
             case .discussions, .reviews:
-                await vm.reloadForumFeed(configuration: config, tab: vm.selectedTab, forceRefresh: true)
+                await vm.reloadForumFeed(configuration: config, tab: socialNav.selectedTab, forceRefresh: true)
             }
         }
     }

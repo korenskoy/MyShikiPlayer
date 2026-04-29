@@ -15,6 +15,10 @@ final class NavigationHistoryStore: ObservableObject {
     enum Entry: Equatable, Codable {
         case branch(NavigationState.Branch)
         case detail(shikimoriId: Int, title: String?)
+        /// A sub-tab inside the Social branch (Friends / Discussions / Reviews).
+        case socialTab(SocialTab)
+        /// An opened forum topic inside the Social branch.
+        case socialTopic(id: Int, title: String?)
     }
 
     // MARK: - State
@@ -28,7 +32,9 @@ final class NavigationHistoryStore: ObservableObject {
     private(set) var isNavigating: Bool = false
 
     private let maxStackSize = 50
-    private let persistKey = "app.navigationHistory.v1"
+    /// Bumped to v2 when `Entry` gained `socialTab`/`socialTopic`. Old v1
+    /// payloads cannot be decoded by the new schema, so we just start fresh.
+    private let persistKey = "app.navigationHistory.v2"
 
     // MARK: - Lifecycle
 
@@ -94,6 +100,19 @@ final class NavigationHistoryStore: ObservableObject {
         if mutated { persist() }
     }
 
+    /// Same as `updateDetailTitle`, but for a forum topic — replaces a stub
+    /// title with the resolved one once the topic finishes loading.
+    func updateSocialTopicTitle(id: Int, title: String) {
+        var mutated = false
+        for i in stack.indices {
+            if case let .socialTopic(topicId, existing) = stack[i], topicId == id, existing != title {
+                stack[i] = .socialTopic(id: topicId, title: title)
+                mutated = true
+            }
+        }
+        if mutated { persist() }
+    }
+
     @discardableResult
     func goBack() -> Entry? {
         guard canGoBack else { return nil }
@@ -151,8 +170,10 @@ extension NavigationHistoryStore.Entry {
     /// anime title (or a placeholder while loading).
     var tooltipTitle: String {
         switch self {
-        case .branch(let branch): return branch.title
-        case .detail(_, let title): return title ?? "Загрузка…"
+        case .branch(let branch):       return branch.title
+        case .detail(_, let title):     return title ?? "Загрузка…"
+        case .socialTab(let tab):       return "Лента · \(tab.title)"
+        case .socialTopic(_, let title): return title ?? "Обсуждение"
         }
     }
 }

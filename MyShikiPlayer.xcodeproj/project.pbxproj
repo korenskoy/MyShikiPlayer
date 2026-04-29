@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		93CDCE762FA1BF6700465073 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 93CDCE752FA1BF6700465073 /* SwiftSoup */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		93F293492F84BC9000AA065F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,12 +28,12 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A1F2936A2F84BC9000AA065F /* Shikimori.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Shikimori.xcconfig; sourceTree = "<group>"; };
-		B2F293712F84BC9000AA065F /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Version.xcconfig; sourceTree = "<group>"; };
-		B2F293722F84BC9000AA065F /* OAuthURLTypes.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Configuration/OAuthURLTypes.plist; sourceTree = "<group>"; };
 		93F293392F84BC8E00AA065F /* MyShikiPlayer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyShikiPlayer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F293482F84BC9000AA065F /* MyShikiPlayerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyShikiPlayerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		93F293522F84BC9000AA065F /* MyShikiPlayerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyShikiPlayerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1F2936A2F84BC9000AA065F /* Configuration/Shikimori.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Shikimori.xcconfig; sourceTree = "<group>"; };
+		B2F293712F84BC9000AA065F /* Configuration/Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Version.xcconfig; sourceTree = "<group>"; };
+		B2F293722F84BC9000AA065F /* Configuration/OAuthURLTypes.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Configuration/OAuthURLTypes.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -55,6 +59,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				93CDCE762FA1BF6700465073 /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -75,15 +80,23 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		93CDCE742FA1BF6700465073 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		93F293302F84BC8E00AA065F = {
 			isa = PBXGroup;
 			children = (
-				A1F2936A2F84BC9000AA065F /* Shikimori.xcconfig */,
-				B2F293712F84BC9000AA065F /* Version.xcconfig */,
-				B2F293722F84BC9000AA065F /* OAuthURLTypes.plist */,
+				A1F2936A2F84BC9000AA065F /* Configuration/Shikimori.xcconfig */,
+				B2F293712F84BC9000AA065F /* Configuration/Version.xcconfig */,
+				B2F293722F84BC9000AA065F /* Configuration/OAuthURLTypes.plist */,
 				93F2933B2F84BC8E00AA065F /* MyShikiPlayer */,
 				93F2934B2F84BC9000AA065F /* MyShikiPlayerTests */,
 				93F293552F84BC9000AA065F /* MyShikiPlayerUITests */,
+				93CDCE742FA1BF6700465073 /* Frameworks */,
 				93F2933A2F84BC8E00AA065F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -119,6 +132,7 @@
 			);
 			name = MyShikiPlayer;
 			packageProductDependencies = (
+				93CDCE752FA1BF6700465073 /* SwiftSoup */,
 			);
 			productName = MyShikiPlayer;
 			productReference = 93F293392F84BC8E00AA065F /* MyShikiPlayer.app */;
@@ -202,6 +216,9 @@
 			);
 			mainGroup = 93F293302F84BC8E00AA065F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				93ABE2A32FA1BBA10006FCA3 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 93F2933A2F84BC8E00AA065F /* Products */;
 			projectDirPath = "";
@@ -213,28 +230,6 @@
 			);
 		};
 /* End PBXProject section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		B1F293702F84BC9000AA065F /* SwiftLint */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = SwiftLint;
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "cd \"${SRCROOT}\"\nif command -v swiftlint >/dev/null 2>&1; then\n  swiftlint\nelse\n  echo \"warning: SwiftLint not installed — brew install swiftlint\"\nfi\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		93F293372F84BC8E00AA065F /* Resources */ = {
@@ -259,6 +254,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B1F293702F84BC9000AA065F /* SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = SwiftLint;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cd \"${SRCROOT}\"\nif command -v swiftlint >/dev/null 2>&1; then\n  swiftlint\nelse\n  echo \"warning: SwiftLint not installed — brew install swiftlint\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		93F293352F84BC8E00AA065F /* Sources */ = {
@@ -420,7 +437,7 @@
 		};
 		93F2935D2F84BC9000AA065F /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A1F2936A2F84BC9000AA065F /* Shikimori.xcconfig */;
+			baseConfigurationReference = A1F2936A2F84BC9000AA065F /* Configuration/Shikimori.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -435,14 +452,14 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Configuration/OAuthURLTypes.plist;
+				INFOPLIST_KEY_KodikAPIToken = "$(KODIK_API_TOKEN)";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_ShikimoriBaseURL = "$(SHIKIMORI_BASE_URL)";
 				INFOPLIST_KEY_ShikimoriClientID = "$(SHIKIMORI_CLIENT_ID)";
 				INFOPLIST_KEY_ShikimoriClientSecret = "$(SHIKIMORI_CLIENT_SECRET)";
 				INFOPLIST_KEY_ShikimoriOAuthBaseURL = "$(SHIKIMORI_OAUTH_BASE_URL)";
 				INFOPLIST_KEY_ShikimoriRedirectURI = "$(SHIKIMORI_REDIRECT_URI)";
 				INFOPLIST_KEY_ShikimoriUserAgentAppName = "$(SHIKIMORI_USER_AGENT_APP_NAME)";
-				INFOPLIST_KEY_KodikAPIToken = "$(KODIK_API_TOKEN)";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -460,7 +477,7 @@
 		};
 		93F2935E2F84BC9000AA065F /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = A1F2936A2F84BC9000AA065F /* Shikimori.xcconfig */;
+			baseConfigurationReference = A1F2936A2F84BC9000AA065F /* Configuration/Shikimori.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -475,14 +492,14 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Configuration/OAuthURLTypes.plist;
+				INFOPLIST_KEY_KodikAPIToken = "$(KODIK_API_TOKEN)";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_ShikimoriBaseURL = "$(SHIKIMORI_BASE_URL)";
 				INFOPLIST_KEY_ShikimoriClientID = "$(SHIKIMORI_CLIENT_ID)";
 				INFOPLIST_KEY_ShikimoriClientSecret = "$(SHIKIMORI_CLIENT_SECRET)";
 				INFOPLIST_KEY_ShikimoriOAuthBaseURL = "$(SHIKIMORI_OAUTH_BASE_URL)";
 				INFOPLIST_KEY_ShikimoriRedirectURI = "$(SHIKIMORI_REDIRECT_URI)";
 				INFOPLIST_KEY_ShikimoriUserAgentAppName = "$(SHIKIMORI_USER_AGENT_APP_NAME)";
-				INFOPLIST_KEY_KodikAPIToken = "$(KODIK_API_TOKEN)";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -500,7 +517,7 @@
 		};
 		93F293602F84BC9000AA065F /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B2F293712F84BC9000AA065F /* Version.xcconfig */;
+			baseConfigurationReference = B2F293712F84BC9000AA065F /* Configuration/Version.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -520,7 +537,7 @@
 		};
 		93F293612F84BC9000AA065F /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B2F293712F84BC9000AA065F /* Version.xcconfig */;
+			baseConfigurationReference = B2F293712F84BC9000AA065F /* Configuration/Version.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -540,7 +557,7 @@
 		};
 		93F293632F84BC9000AA065F /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B2F293712F84BC9000AA065F /* Version.xcconfig */;
+			baseConfigurationReference = B2F293712F84BC9000AA065F /* Configuration/Version.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "$(inherited)";
@@ -558,7 +575,7 @@
 		};
 		93F293642F84BC9000AA065F /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B2F293712F84BC9000AA065F /* Version.xcconfig */;
+			baseConfigurationReference = B2F293712F84BC9000AA065F /* Configuration/Version.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "$(inherited)";
@@ -614,6 +631,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		93ABE2A32FA1BBA10006FCA3 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.13.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		93CDCE752FA1BF6700465073 /* SwiftSoup */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 93ABE2A32FA1BBA10006FCA3 /* XCRemoteSwiftPackageReference "SwiftSoup" */;
+			productName = SwiftSoup;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 93F293312F84BC8E00AA065F /* Project object */;
 }

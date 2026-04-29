@@ -18,6 +18,7 @@ struct AppShellView: View {
     @ObservedObject var updates: UpdateCheckService
     @StateObject private var navigation = NavigationState()
     @StateObject private var history = NavigationHistoryStore()
+    @StateObject private var socialNav = SocialNavigationState()
     @State private var isSearchPresented: Bool = false
     @State private var searchOpenedDetailId: Int?
     @State private var mouseSideButtonsMonitor: Any?
@@ -92,16 +93,6 @@ struct AppShellView: View {
                 .opacity(0)
                 .accessibilityHidden(true)
 
-            // Esc — close the opened details. There is no dedicated button in
-            // the UI; navigation back happens via TopBar (any tab) or Esc.
-            if searchOpenedDetailId != nil {
-                Button { closeDetails() } label: { EmptyView() }
-                    .keyboardShortcut(.escape, modifiers: [])
-                    .frame(width: 0, height: 0)
-                    .opacity(0)
-                    .accessibilityHidden(true)
-            }
-
             if isSearchPresented {
                 SearchModalView(
                     configuration: auth.configuration,
@@ -136,6 +127,13 @@ struct AppShellView: View {
             guard let id = newId else { return }
             history.push(.detail(shikimoriId: id, title: nil))
         }
+        .onChange(of: navigation.selectedBranch) { _, newBranch in
+            // Stepping out of Social via the top-bar tab — drop any opened
+            // topic so coming back doesn't restore the wrong screen.
+            if newBranch != .social {
+                socialNav.closeTopic()
+            }
+        }
         .background(theme.bg)
         .appTheme(theme)
     }
@@ -165,6 +163,9 @@ struct AppShellView: View {
             // Previous session ended on detail — push a new entry for the
             // current default tab; old history stays in the back stack.
             history.push(.branch(navigation.selectedBranch))
+        case .socialTab, .socialTopic:
+            // Restore the Social sub-state via the regular apply path.
+            applyHistoryStep(current)
         }
     }
 
@@ -174,9 +175,20 @@ struct AppShellView: View {
             switch entry {
             case .branch(let branch):
                 searchOpenedDetailId = nil
+                socialNav.closeTopic()
                 navigation.selectedBranch = branch
             case .detail(let id, _):
+                socialNav.closeTopic()
                 searchOpenedDetailId = id
+            case .socialTab(let tab):
+                searchOpenedDetailId = nil
+                socialNav.closeTopic()
+                socialNav.selectedTab = tab
+                navigation.selectedBranch = .social
+            case .socialTopic(let id, let title):
+                searchOpenedDetailId = nil
+                navigation.selectedBranch = .social
+                socialNav.restoreTopic(id: id, title: title)
             }
         }
     }
@@ -226,6 +238,8 @@ struct AppShellView: View {
         case .social:
             SocialView(
                 auth: auth,
+                socialNav: socialNav,
+                history: history,
                 onOpenAnime: { id in searchOpenedDetailId = id }
             )
         case .myLists:

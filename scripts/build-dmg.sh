@@ -2,7 +2,23 @@
 # Build MyShikiPlayer (Release), pack MyShikiPlayer.app into a compressed DMG, open it.
 # By default bumps CURRENT_PROJECT_VERSION in Configuration/Version.xcconfig by 1 before the build.
 # Disable with: SKIP_BUILD_NUMBER_BUMP=1 ./scripts/build-dmg.sh
+#
+# Flags:
+#   --hdiutil-verbose   Pass -verbose to `hdiutil create` (helps debug
+#                       "hdiutil: create failed - Resource busy" by showing
+#                       which file/volume hdiutil tripped on).
+#   --hdiutil-debug     Pass -debug + -verbose to `hdiutil create` for the
+#                       most chatty output (every IO / framework call).
 set -euo pipefail
+
+HDIUTIL_FLAGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --hdiutil-verbose) HDIUTIL_FLAGS=(-verbose) ;;
+    --hdiutil-debug)   HDIUTIL_FLAGS=(-debug -verbose) ;;
+    *) echo "warning: ignoring unknown argument: $arg" >&2 ;;
+  esac
+done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCHEME="${SCHEME:-MyShikiPlayer}"
@@ -74,7 +90,10 @@ ln -sf /Applications "$STAGING/Applications"
 
 echo "==> hdiutil → $OUTPUT_DMG"
 rm -f "$OUTPUT_DMG"
+# `${arr[@]+"${arr[@]}"}` expands to nothing when the array is empty —
+# the canonical safe form under `set -u` (works on bash 3.2 / macOS).
 hdiutil create \
+  ${HDIUTIL_FLAGS[@]+"${HDIUTIL_FLAGS[@]}"} \
   -volname "$VOL_NAME" \
   -srcfolder "$STAGING" \
   -ov \

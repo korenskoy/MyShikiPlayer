@@ -15,6 +15,33 @@
 import Foundation
 
 enum ShikimoriText {
+    /// Allowlist for clickable external URLs that came from user-generated
+    /// content (forum BBCode `[url]`, `[img]`, etc). Anything outside
+    /// `http`/`https`/`mailto` is rejected before it can become a clickable
+    /// link or be passed to `NSWorkspace.open`. The internal `myshiki://`
+    /// scheme is handled separately and is never built from user input.
+    static func isSafeExternalURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https" || scheme == "mailto"
+    }
+
+    /// Heuristic for "this URL points at an image we can render inline".
+    /// Two signals: a known image extension on the path, or a Shikimori-hosted
+    /// `/system/...` upload (user images on shikimori.io/.one/.me — they always
+    /// resolve to a JPEG/PNG even though the extension is sometimes uppercase
+    /// or wrapped in a query string).
+    static func isImageURL(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        let exts = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        if exts.contains(where: { path.hasSuffix($0) }) { return true }
+        if let host = url.host?.lowercased(),
+           host == "shikimori.io" || host == "shikimori.one" || host == "shikimori.me",
+           path.hasPrefix("/system/") {
+            return true
+        }
+        return false
+    }
+
     /// Coarse BB-code stripping: keeps the content, removes the tags themselves.
     /// Used in `toPlain` (previews) — the caller expects the result without
     /// trailing whitespace / newlines.
@@ -81,18 +108,57 @@ enum ShikimoriText {
 
     // MARK: - Segments
 
-    /// A segment of a formatted body: plain text, spoiler or quote.
-    /// Content is raw BBCode (without the spoiler/quote wrapper), which is
-    /// later parsed into `[Inline]` via `parseInlines`. HTML bodies are
-    /// reduced to plain before this stage — there `[Inline]` will be a single `.text`.
+    /// A segment of a formatted body: plain text, spoiler, quote, or one of
+    /// the Markdown block constructs Shikimori supports (`#…#####` headings,
+    /// `> quote`, fenced ` ``` ` blocks, and `- bullet` lists).
+    /// Content of `plain` / `spoiler` / `quote` is still raw BBCode and is
+    /// later parsed into `[Inline]` via `parseInlines`; `heading` / `markdownQuote`
+    /// content is also further parsed inline; `codeBlock` and `list` are rendered
+    /// verbatim (no inline parsing).
     enum Segment: Equatable {
         case plain(String)
-        case spoiler(String)
-        case quote(String)
+        /// Shikimori spoilers carry a clickable title (`<span tabindex="0">`)
+        /// alongside the hidden content. We preserve both so the renderer
+        /// can label the toggle ("а если чут-чут напряжет мускулы?") and
+        /// match the web client; `label` is nil when the BBCode `[spoiler]`
+        /// form was used without an explicit label.
+        case spoiler(label: String?, content: String)
+        /// `[quote=USER_ID;USERNAME[;COMMENT_ID]]…[/quote]` — `author` carries
+        /// the second attribute component (username) when present.
+        case quote(content: String, author: String?)
+        /// Markdown heading: `level` is 1…5 (h1…h5).
+        case heading(level: Int, text: String)
+        /// Markdown blockquote: `> line` (one or more consecutive lines).
+        case markdownQuote(String)
+        /// Fenced code block: ` ```lang…``` `. `language` is nil for ` ``` ` without a label.
+        case codeBlock(language: String?, text: String)
+        /// Markdown unordered list: `- item` (one or more consecutive lines).
+        case list([String])
+        /// Image embedded in the body. The HTML parser already resolves
+        /// `<a class="b-image">` and `<img>` to direct URLs.
+        case image(url: URL)
+    }
+
+    /// Inline-text styling extracted from `[b][i][u][s]` and `[color=…]`.
+    /// Multiple flags can stack on a single run because we treat each tag as
+    /// independent — nested combinations like `[b][i]X[/i][/b]` collapse to a
+    /// single `.styled` with both `bold` and `italic` only when the tags
+    /// share their range; otherwise the inner tag's text is taken verbatim.
+    struct InlineStyle: Equatable {
+        var bold: Bool = false
+        var italic: Bool = false
+        var underline: Bool = false
+        var strikethrough: Bool = false
+        /// Hex string as written in BBCode (`#RRGGBB` or `#RGB`); the renderer
+        /// parses it on demand.
+        var colorHex: String?
     }
 
     /// Inline fragment of a plain segment: either text, or a link to a
-    /// Shikimori entity ([anime=N], [manga=N], …), or an external URL ([url]…[/url]).
+    /// Shikimori entity ([anime=N], [manga=N], …), or an external URL ([url]…[/url]),
+    /// or a smiley shortcode (e.g. `:ololo:`, `:-D`, `+_+`),
+    /// or a forum reference ([comment=N;A] / [replies=N,N,…]),
+    /// or a styled text run (`[b][i][u][s][color=…]`).
     enum Inline: Equatable {
         case text(String)
         case anime(id: Int, name: String)
@@ -102,152 +168,71 @@ enum ShikimoriText {
         case person(id: Int, name: String)
         case user(id: Int, name: String)
         case external(url: URL, label: String)
+        case smiley(token: String)
+        /// `[comment=COMMENT_ID(;AUTHOR_ID)?]` — a reference to another comment
+        /// in the same topic, optionally tagged with the addressee's user id.
+        case commentReference(commentId: Int, authorId: Int?)
+        /// `<div class="b-replies">` — comment ids replying to this one.
+        /// Author nicknames are resolved at render time via `CommentResolvers`.
+        case replies([Int])
+        /// `<b>…</b>` / `<i>…</i>` / `<u>…</u>` / `<s>…</s>` / `<span style="color:…">`.
+        /// `text` is the content of the styled run (recursing nested style
+        /// tags is handled by the parser, not the renderer).
+        case styled(text: String, style: InlineStyle)
+        /// `<code>…</code>` — monospaced inline run.
+        case inlineCode(String)
     }
 
-    /// Parses a raw body (BBCode-first) into segments, separating [spoiler]
-    /// and [quote] blocks. Segment content is raw BBCode (without the wrapper).
-    /// HTML bodies (html_body) are converted to plain in advance: a single
-    /// `.plain` segment without BBCode markup.
+    /// Builds an entity-link `Inline` from a kind/id/label triple. Returns
+    /// nil for an unknown kind so the caller can fall back to a plain link.
+    static func entityInline(kind: String, id: Int, label: String) -> Inline? {
+        switch kind {
+        case "anime":     return .anime(id: id, name: label)
+        case "manga":     return .manga(id: id, name: label)
+        case "ranobe":    return .ranobe(id: id, name: label)
+        case "character": return .character(id: id, name: label)
+        case "person":    return .person(id: id, name: label)
+        case "user":      return .user(id: id, name: label)
+        default:          return nil
+        }
+    }
+
+    /// Parses a raw body into segments. Always goes through `ShikimoriHTML`
+    /// because the renderer expects the resolved-by-server format. The
+    /// BBCode `body` is only used as a last-resort fallback (Shikimori
+    /// almost always returns both): we strip its markup down to plain text
+    /// rather than re-implement a second parser.
     static func segments(_ input: String?) -> [Segment] {
         guard let raw = input, !raw.isEmpty else { return [] }
-        if raw.contains("<") && raw.contains(">") {
-            let plain = stripHTML(raw)
-            return plain.isEmpty ? [] : [.plain(plain)]
+        if looksLikeHTML(raw) {
+            return ShikimoriHTML.parse(raw)
         }
-        return parseBBCodeSegments(raw)
+        let plain = stripBBCode(raw)
+        return plain.isEmpty ? [] : [.plain(plain)]
     }
 
-    /// Parses a plain segment into an array of inline fragments: text + links.
-    /// Returns `[.text(content)]` if there are no links (raw is already plain).
+    /// Parses inline content into `[Inline]`. Same routing as `segments`.
     static func parseInlines(_ raw: String) -> [Inline] {
         guard !raw.isEmpty else { return [] }
-        let ns = raw as NSString
-        let fullRange = NSRange(location: 0, length: ns.length)
-
-        var matches: [(NSRange, Inline)] = []
-
-        // 1. Shikimori entities: [anime=N]Name[/anime], etc.
-        if let regex = try? NSRegularExpression(
-            pattern: #"\[(anime|manga|ranobe|character|person|user)=(\d+)\]([\s\S]*?)\[/\1\]"#,
-            options: [.caseInsensitive]
-        ) {
-            regex.enumerateMatches(in: raw, options: [], range: fullRange) { m, _, _ in
-                guard let m else { return }
-                let kind = ns.substring(with: m.range(at: 1)).lowercased()
-                guard let id = Int(ns.substring(with: m.range(at: 2))) else { return }
-                let nameRaw = ns.substring(with: m.range(at: 3))
-                let name = stripBBCode(nameRaw)
-                let label = name.isEmpty ? "ссылка" : name
-                let inline: Inline?
-                switch kind {
-                case "anime":     inline = .anime(id: id, name: label)
-                case "manga":     inline = .manga(id: id, name: label)
-                case "ranobe":    inline = .ranobe(id: id, name: label)
-                case "character": inline = .character(id: id, name: label)
-                case "person":    inline = .person(id: id, name: label)
-                case "user":      inline = .user(id: id, name: label)
-                default:          inline = nil
-                }
-                if let inline { matches.append((m.range, inline)) }
-            }
+        if looksLikeHTML(raw) {
+            return ShikimoriHTML.parseInlines(raw)
         }
-
-        // 2. [url=…]label[/url]
-        if let regex = try? NSRegularExpression(
-            pattern: #"\[url=([^\]]+)\]([\s\S]*?)\[/url\]"#,
-            options: [.caseInsensitive]
-        ) {
-            regex.enumerateMatches(in: raw, options: [], range: fullRange) { m, _, _ in
-                guard let m, let url = URL(string: ns.substring(with: m.range(at: 1))) else { return }
-                let labelRaw = ns.substring(with: m.range(at: 2))
-                let label = stripBBCode(labelRaw)
-                matches.append((m.range, .external(url: url, label: label.isEmpty ? url.absoluteString : label)))
-            }
-        }
-
-        // 3. [url]https://…[/url] (without attribute)
-        if let regex = try? NSRegularExpression(
-            pattern: #"\[url\]([\s\S]*?)\[/url\]"#,
-            options: [.caseInsensitive]
-        ) {
-            regex.enumerateMatches(in: raw, options: [], range: fullRange) { m, _, _ in
-                guard let m else { return }
-                let urlString = ns.substring(with: m.range(at: 1))
-                guard let url = URL(string: urlString) else { return }
-                matches.append((m.range, .external(url: url, label: urlString)))
-            }
-        }
-
-        // Sort + drop overlapping ones (inner tags that ended up as the
-        // label of an outer link).
-        matches.sort { $0.0.location < $1.0.location }
-        var filtered: [(NSRange, Inline)] = []
-        var lastEnd = 0
-        for entry in matches {
-            if entry.0.location < lastEnd { continue }
-            filtered.append(entry)
-            lastEnd = entry.0.location + entry.0.length
-        }
-
-        var result: [Inline] = []
-        var cursor = 0
-        for (range, inline) in filtered {
-            if range.location > cursor {
-                let before = ns.substring(with: NSRange(location: cursor, length: range.location - cursor))
-                // stripBBCodeMarkers (no trim) — whitespace/newlines around
-                // links are significant, otherwise text sticks to the label.
-                let cleaned = stripBBCodeMarkers(before)
-                if !cleaned.isEmpty { result.append(.text(cleaned)) }
-            }
-            result.append(inline)
-            cursor = range.location + range.length
-        }
-        if cursor < ns.length {
-            let tail = ns.substring(with: NSRange(location: cursor, length: ns.length - cursor))
-            let cleaned = stripBBCodeMarkers(tail)
-            if !cleaned.isEmpty { result.append(.text(cleaned)) }
-        }
-        return result
+        let plain = stripBBCode(raw)
+        return plain.isEmpty ? [] : [.text(plain)]
     }
 
-    private static func parseBBCodeSegments(_ input: String) -> [Segment] {
-        // Look for top-level [spoiler]…[/spoiler] and [quote]…[/quote].
-        // Segment content is kept raw — the inline parser will later split it
-        // into text + links. Content between blocks is also raw.
-        let pattern = #"\[(spoiler|quote)(?:=[^\]]*)?\]([\s\S]*?)\[/\1\]"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return [.plain(input)]
-        }
-        let ns = input as NSString
-        var segments: [Segment] = []
-        var cursor = 0
-        let fullRange = NSRange(location: 0, length: ns.length)
-        regex.enumerateMatches(in: input, options: [], range: fullRange) { match, _, _ in
-            guard let match else { return }
-            let outer = match.range
-            if outer.location > cursor {
-                let before = ns.substring(with: NSRange(location: cursor, length: outer.location - cursor))
-                if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    segments.append(.plain(before))
-                }
-            }
-            let kind = ns.substring(with: match.range(at: 1)).lowercased()
-            let content = ns.substring(with: match.range(at: 2))
-            if !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                switch kind {
-                case "spoiler": segments.append(.spoiler(content))
-                case "quote":   segments.append(.quote(content))
-                default:        segments.append(.plain(content))
-                }
-            }
-            cursor = outer.location + outer.length
-        }
-        if cursor < ns.length {
-            let tail = ns.substring(with: NSRange(location: cursor, length: ns.length - cursor))
-            if !tail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                segments.append(.plain(tail))
-            }
-        }
-        return segments
+    /// Heuristic: server-rendered HTML always has at least one `<tag>` form.
+    /// BBCode bodies can contain `<` / `>` characters but not that shape,
+    /// so this is enough to disambiguate.
+    private static func looksLikeHTML(_ raw: String) -> Bool {
+        guard raw.contains("<"), raw.contains(">") else { return false }
+        return raw.range(of: #"<[a-zA-Z/!][^>]*>"#, options: .regularExpression) != nil
     }
+
+}
+
+extension String {
+    /// Single project-wide helper used across the BBCode/Markdown stack and
+    /// the topic UI to gate optional chains on non-empty strings.
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

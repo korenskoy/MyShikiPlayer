@@ -231,6 +231,27 @@ final class SocialRepo {
         allowStale ? commentsCache.getStale(topicId) : commentsCache.get(topicId)
     }
 
+    /// Loads a single page of comments without touching the cache (the cache
+    /// only holds page 1 — the most recent batch). Used by `loadMore` in the
+    /// topic VM to walk further into the past.
+    func commentsPage(
+        configuration: ShikimoriConfiguration,
+        topicId: Int,
+        page: Int
+    ) async throws -> [TopicComment] {
+        let rest = ShikimoriRESTClient(configuration: configuration)
+        let comments = try await rest.comments(
+            commentableType: "Topic",
+            commentableId: topicId,
+            limit: 30,
+            page: page
+        )
+        NetworkLogStore.shared.logUIEvent(
+            "social_comments_page topic=\(topicId) page=\(page) count=\(comments.count)"
+        )
+        return comments
+    }
+
     func comments(
         configuration: ShikimoriConfiguration,
         topicId: Int,

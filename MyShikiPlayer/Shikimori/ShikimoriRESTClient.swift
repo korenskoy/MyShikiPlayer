@@ -145,8 +145,12 @@ final class ShikimoriRESTClient: Sendable {
     }
 
     /// User's friends.
-    func userFriends(id: Int) async throws -> [UserFriend] {
-        let url = apiBase.appendingPathComponent("api/users/\(id)/friends")
+    /// Without an explicit `limit`, Shikimori returns only one record, so we
+    /// always pass it. 100 is the API's per-page maximum.
+    func userFriends(id: Int, limit: Int = 100) async throws -> [UserFriend] {
+        var c = URLComponents(url: apiBase.appendingPathComponent("api/users/\(id)/friends"), resolvingAgainstBaseURL: false)!
+        c.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        guard let url = c.url else { throw ShikimoriAPIError.invalidURL }
         let (data, httpResp) = try await http.jsonRequest(url: url, method: "GET")
         try Self.throwIfNeeded(httpResp, data: data)
         do {
