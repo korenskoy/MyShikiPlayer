@@ -235,7 +235,7 @@ final class AnimeDetailsViewModel: ObservableObject {
                     userStatus = nil
                     userScore = nil
                     userEpisodesWatched = 0
-                    CacheEvents.postUserRateChanged(animeId: shikimoriId, userId: userId)
+                    CacheEvents.postUserRateRemoved(animeId: shikimoriId, userId: userId)
                     return
                 }
                 // Update
@@ -266,10 +266,29 @@ final class AnimeDetailsViewModel: ObservableObject {
             }
             // The title data now contains the updated userRate — post the event;
             // subscribed repos (AnimeDetail / Home / Profile) will clear their caches.
-            CacheEvents.postUserRateChanged(animeId: shikimoriId, userId: userId)
+            // Library uses the payload to update its row in-place without a refetch.
+            postUserRateChangedEvent(userId: userId)
         } catch {
             NetworkLogStore.shared.logAppError("details_user_rate_mutation_failed \(error.localizedDescription)")
         }
+    }
+
+    /// Builds a `UserRatePayload` snapshot from current view state and posts
+    /// `.cacheUserRateDidChange`. Payload is omitted (nil) only if `userRateId`
+    /// or `userStatus` is missing, which shouldn't happen on the success path
+    /// since both branches above populate them.
+    private func postUserRateChangedEvent(userId: Int) {
+        let payload: CacheEvents.UserRatePayload? = {
+            guard let rateId = userRateId, let status = userStatus else { return nil }
+            return CacheEvents.UserRatePayload(
+                rateId: rateId,
+                status: status,
+                score: userScore ?? 0,
+                episodes: userEpisodesWatched,
+                updatedAt: nil
+            )
+        }()
+        CacheEvents.postUserRateChanged(animeId: shikimoriId, userId: userId, payload: payload)
     }
 
     /// Marks an episode as watched in user_rate. Never decreases the counter
@@ -318,7 +337,7 @@ final class AnimeDetailsViewModel: ObservableObject {
                 userStatus = created.status
                 userEpisodesWatched = created.episodes
             }
-            CacheEvents.postUserRateChanged(animeId: shikimoriId, userId: userId)
+            postUserRateChangedEvent(userId: userId)
             NetworkLogStore.shared.logUIEvent(
                 "details_episode_synced shikimori_id=\(shikimoriId) episodes=\(target) " +
                 "auto_completed=\(reachesFinal && nextStatus == "completed")"

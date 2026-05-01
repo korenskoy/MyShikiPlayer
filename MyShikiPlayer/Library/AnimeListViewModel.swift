@@ -102,6 +102,49 @@ final class AnimeListViewModel: ObservableObject {
         selectedRating = snapshot.selectedRating
         selectedSeason = snapshot.selectedSeason
         selectedStatuses = snapshot.selectedStatuses
+
+        // When a title is removed from the user's list elsewhere (e.g. from
+        // the title's details page), drop it from the in-memory list and
+        // invalidate the on-disk cache so the next reload doesn't resurrect
+        // it from the 15-minute TTL snapshot.
+        CacheEvents.observeUserRateRemoved { [weak self] animeId, _ in
+            guard let self else { return }
+            self.allItems.removeAll { $0.shikimoriId == animeId }
+            self.invalidateListCache()
+        }
+
+        // When the rate is updated elsewhere (status / score / episodes via
+        // the details screen), patch the matching row in-place so the title
+        // moves to the correct status tab without waiting for a reload.
+        // No payload → fall back to invalidating the on-disk cache only.
+        // Row not in `allItems` → user just added a new title from details;
+        // we lack title/poster fields to insert, so just invalidate cache and
+        // let the next reload pick it up.
+        CacheEvents.observeUserRateChanged { [weak self] animeId, _, payload in
+            guard let self else { return }
+            guard let payload else {
+                self.invalidateListCache()
+                return
+            }
+            if let index = self.allItems.firstIndex(where: { $0.shikimoriId == animeId }) {
+                let old = self.allItems[index]
+                self.allItems[index] = Item(
+                    id: payload.rateId,
+                    shikimoriId: old.shikimoriId,
+                    title: old.title,
+                    kind: old.kind,
+                    year: old.year,
+                    status: payload.status,
+                    score: payload.score,
+                    episodesWatched: payload.episodes,
+                    posterURL: old.posterURL,
+                    updatedAt: payload.updatedAt ?? Date(),
+                    animeStatus: old.animeStatus,
+                    animeSeason: old.animeSeason
+                )
+            }
+            self.invalidateListCache()
+        }
     }
 
     var visibleItems: [Item] {
