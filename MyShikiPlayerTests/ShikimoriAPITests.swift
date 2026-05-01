@@ -166,3 +166,64 @@ struct ShikimoriHTTPTests {
         MockURLProtocol.handler = nil
     }
 }
+
+@Suite("ShikimoriAPIError messages")
+struct ShikimoriAPIErrorMessageTests {
+    private static let shikimori502HTML = """
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8" /><title>502</title></head>
+    <body>
+    <div class="dialog">
+    <p class="error-500">502</p>
+    <h1>Сервер временно недоступен</h1>
+    <p>Попробуй <a onclick='location.reload();'>перезагрузить страницу</a> или свяжись с <a href="mailto:mail@shikimori.org">администрацией сайта.</a></p>
+    </div>
+    </body></html>
+    """
+
+    @Test func htmlBodyCollapsesToTitle502() {
+        let body = Data(Self.shikimori502HTML.utf8)
+        let err = ShikimoriAPIError.httpStatus(code: 502, body: body)
+        let message = err.errorDescription ?? ""
+
+        // Localised reason wins, raw HTML is never surfaced, code is appended.
+        #expect(message == "Сервер временно недоступен. (HTTP 502)")
+        #expect(!message.contains("<"))
+        #expect(!message.contains("DOCTYPE"))
+        #expect(!message.contains("location.reload"))
+    }
+
+    @Test func plainTextBodyAppendedWhenInformative() {
+        let body = Data("rate limit: 5 req/sec".utf8)
+        let err = ShikimoriAPIError.httpStatus(code: 429, body: body)
+        let message = err.errorDescription ?? ""
+
+        #expect(message.hasPrefix("Слишком много запросов, попробуй позже."))
+        #expect(message.contains("rate limit: 5 req/sec"))
+        #expect(message.hasSuffix("(HTTP 429)"))
+    }
+
+    @Test func emptyBodyKeepsLocalisedTitleAndCode() {
+        let err = ShikimoriAPIError.httpStatus(code: 503, body: nil)
+        #expect(err.errorDescription == "Сервер на обслуживании. (HTTP 503)")
+    }
+
+    @Test func unknownStatusCodeFallsBackToBucket() {
+        let err = ShikimoriAPIError.httpStatus(code: 418, body: nil)
+        #expect(err.errorDescription == "Запрос отклонён сервером. (HTTP 418)")
+
+        let serverErr = ShikimoriAPIError.httpStatus(code: 599, body: nil)
+        #expect(serverErr.errorDescription == "Сервер вернул ошибку. (HTTP 599)")
+    }
+
+    @Test func longBodyIsClippedToOneLine() {
+        let big = String(repeating: "lorem ipsum dolor sit amet ", count: 200)
+        let body = Data(big.utf8)
+        let err = ShikimoriAPIError.httpStatus(code: 500, body: body)
+        let message = err.errorDescription ?? ""
+
+        #expect(message.count < 350)
+        #expect(!message.contains("\n"))
+        #expect(message.contains("…"))
+    }
+}
