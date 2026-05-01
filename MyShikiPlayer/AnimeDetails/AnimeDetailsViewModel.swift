@@ -226,6 +226,18 @@ final class AnimeDetailsViewModel: ObservableObject {
         guard let userId = currentUserId else { return }
         do {
             if let rateId = userRateId {
+                // status == nil here means "remove from list" — PATCH with a
+                // nil status is a no-op on the server (missing key keeps the
+                // old value), so we DELETE the user_rate instead.
+                if status == nil {
+                    try await restClient.deleteUserRate(id: rateId)
+                    userRateId = nil
+                    userStatus = nil
+                    userScore = nil
+                    userEpisodesWatched = 0
+                    CacheEvents.postUserRateChanged(animeId: shikimoriId, userId: userId)
+                    return
+                }
                 // Update
                 let body = UserRateV2UpdateBody(userRate: .init(
                     chapters: nil, episodes: nil, volumes: nil, rewatches: nil,
