@@ -36,6 +36,7 @@ struct SettingsView: View {
                     appearanceSection
                     hostsSection
                     playerSection
+                    subtitlesSection
                     kodikSection
                     diagnosticsSection
                     updatesSection
@@ -197,6 +198,17 @@ struct SettingsView: View {
                     .foregroundStyle(theme.fg)
             }
             .toggleStyle(.switch)
+        }
+    }
+
+    // MARK: - Subtitles
+
+    private var subtitlesSection: some View {
+        SettingsSection(
+            title: "Субтитры",
+            description: "Настройки субтитров из Anime365: язык, студийный стиль и собственное оформление."
+        ) {
+            SubtitleSettingsView(settings: SubtitleSettings.shared)
         }
     }
 

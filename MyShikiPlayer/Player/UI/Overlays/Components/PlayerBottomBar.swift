@@ -17,6 +17,8 @@ struct PlayerBottomBar: View {
     let accent: Color
     let onToggleFullscreen: () -> Void
 
+    @Environment(\.subtitlesAssembly) private var subtitlesAssembly
+
     @State private var showingDub = false
     @State private var showingQuality = false
     @State private var showingSpeed = false
@@ -98,6 +100,8 @@ struct PlayerBottomBar: View {
             dubPill
             qualityPill
             speedPill
+
+            PlayerSubtitleControls(engine: engine)
 
             episodesButton
                 .help("Список эпизодов")

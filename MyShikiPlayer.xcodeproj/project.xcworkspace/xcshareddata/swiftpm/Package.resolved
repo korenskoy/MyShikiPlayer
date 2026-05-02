@@ -1,6 +1,60 @@
 {
-  "originHash" : "2b6d335272326468abc2114223e2ce9f2cf9645d68fa4e525733ecbf43f90359",
+  "originHash" : "0e61ad964bd9a6c16a7e2d4b7b59b1643458822e5bf9ffbae67e7e0869abbd19",
   "pins" : [
+    {
+      "identity" : "bytesparser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dagronf/BytesParser",
+      "state" : {
+        "revision" : "a091513c4059d336c8cbf0b9485fcba63bcba83a",
+        "version" : "3.2.1"
+      }
+    },
+    {
+      "identity" : "combine-schedulers",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/combine-schedulers",
+      "state" : {
+        "revision" : "dcccb979a2183b8df3334237e3dc1ae2b4116a86",
+        "version" : "1.2.0"
+      }
+    },
+    {
+      "identity" : "dsfregex",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dagronf/DSFRegex",
+      "state" : {
+        "revision" : "c576aab25f88bcb4b549862e6269b6f90b917e0c",
+        "version" : "4.0.0"
+      }
+    },
+    {
+      "identity" : "swift-ass-renderer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mihai8804858/swift-ass-renderer",
+      "state" : {
+        "revision" : "28919f6b5ddd896d327b0283f8d97624902236e6",
+        "version" : "1.3.1"
+      }
+    },
+    {
+      "identity" : "swift-concurrency-extras",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-concurrency-extras",
+      "state" : {
+        "revision" : "5a3825302b1a0d744183200915a47b508c828e6f",
+        "version" : "1.3.2"
+      }
+    },
+    {
+      "identity" : "swift-libass",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mihai8804858/swift-libass",
+      "state" : {
+        "revision" : "6513c488e377a26c06db327fb2acfc2653a041d5",
+        "version" : "1.4.0"
+      }
+    },
     {
       "identity" : "swiftsoup",
       "kind" : "remoteSourceControl",
@@ -8,6 +62,33 @@
       "state" : {
         "revision" : "6c7915e16f729857aec3e99068c361e58a00ed68",
         "version" : "2.13.4"
+      }
+    },
+    {
+      "identity" : "swiftsubtitles",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dagronf/SwiftSubtitles",
+      "state" : {
+        "revision" : "485c6f1fc71235041198a8bb893fa22f807451a6",
+        "version" : "2.2.0"
+      }
+    },
+    {
+      "identity" : "tinycsv",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/dagronf/TinyCSV",
+      "state" : {
+        "revision" : "05d691ee7bab64f5ff075b97f47ef41d36a81f6f",
+        "version" : "1.0.1"
+      }
+    },
+    {
+      "identity" : "xctest-dynamic-overlay",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/xctest-dynamic-overlay",
+      "state" : {
+        "revision" : "dfd70507def84cb5fb821278448a262c6ff2bbad",
+        "version" : "1.9.0"
       }
     }
   ],

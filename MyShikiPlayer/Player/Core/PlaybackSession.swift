@@ -73,9 +73,9 @@ final class PlaybackSession: ObservableObject {
     /// 3.5s matches the UI rule of brief, calm hints (feedback_ui_stability).
     private let fallbackHintAutoDismissSeconds: UInt64 = 3_500_000_000
     private var fallbackHintDismissTask: Task<Void, Never>?
-    private(set) var currentShikimoriId: Int?
-    private(set) var currentEpisode: Int = 1
-    private(set) var preferredTranslationId: Int?
+    @Published private(set) var currentShikimoriId: Int?
+    @Published private(set) var currentEpisode: Int = 1
+    @Published private(set) var preferredTranslationId: Int?
 
     /// Called before loading another episode: leaving episode, position and duration for progress sync.
     var onBeforeEpisodeChange: ((_ leavingEpisode: Int, _ position: Double, _ duration: Double) -> Void)?

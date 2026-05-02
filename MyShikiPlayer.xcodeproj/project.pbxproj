@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		935451552FA64764001A9D08 /* SwiftSubtitles in Frameworks */ = {isa = PBXBuildFile; productRef = 935451542FA64764001A9D08 /* SwiftSubtitles */; };
+		9354515C2FA64775001A9D08 /* SwiftAssRenderer in Frameworks */ = {isa = PBXBuildFile; productRef = 9354515B2FA64775001A9D08 /* SwiftAssRenderer */; };
 		93CDCE762FA1BF6700465073 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 93CDCE752FA1BF6700465073 /* SwiftSoup */; };
 /* End PBXBuildFile section */
 
@@ -59,6 +61,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				935451552FA64764001A9D08 /* SwiftSubtitles in Frameworks */,
+				9354515C2FA64775001A9D08 /* SwiftAssRenderer in Frameworks */,
 				93CDCE762FA1BF6700465073 /* SwiftSoup in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -133,6 +137,8 @@
 			name = MyShikiPlayer;
 			packageProductDependencies = (
 				93CDCE752FA1BF6700465073 /* SwiftSoup */,
+				935451542FA64764001A9D08 /* SwiftSubtitles */,
+				9354515B2FA64775001A9D08 /* SwiftAssRenderer */,
 			);
 			productName = MyShikiPlayer;
 			productReference = 93F293392F84BC8E00AA065F /* MyShikiPlayer.app */;
@@ -218,6 +224,8 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				93ABE2A32FA1BBA10006FCA3 /* XCRemoteSwiftPackageReference "SwiftSoup" */,
+				935451532FA64764001A9D08 /* XCRemoteSwiftPackageReference "SwiftSubtitles" */,
+				9354515A2FA64775001A9D08 /* XCRemoteSwiftPackageReference "swift-ass-renderer" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 93F2933A2F84BC8E00AA065F /* Products */;
@@ -633,6 +641,22 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		935451532FA64764001A9D08 /* XCRemoteSwiftPackageReference "SwiftSubtitles" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/dagronf/SwiftSubtitles";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.2.0;
+			};
+		};
+		9354515A2FA64775001A9D08 /* XCRemoteSwiftPackageReference "swift-ass-renderer" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mihai8804858/swift-ass-renderer";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.1;
+			};
+		};
 		93ABE2A32FA1BBA10006FCA3 /* XCRemoteSwiftPackageReference "SwiftSoup" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/scinfu/SwiftSoup.git";
@@ -644,6 +668,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		935451542FA64764001A9D08 /* SwiftSubtitles */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 935451532FA64764001A9D08 /* XCRemoteSwiftPackageReference "SwiftSubtitles" */;
+			productName = SwiftSubtitles;
+		};
+		9354515B2FA64775001A9D08 /* SwiftAssRenderer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 9354515A2FA64775001A9D08 /* XCRemoteSwiftPackageReference "swift-ass-renderer" */;
+			productName = SwiftAssRenderer;
+		};
 		93CDCE752FA1BF6700465073 /* SwiftSoup */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 93ABE2A32FA1BBA10006FCA3 /* XCRemoteSwiftPackageReference "SwiftSoup" */;

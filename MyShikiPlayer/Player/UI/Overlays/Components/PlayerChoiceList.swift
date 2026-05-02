@@ -44,33 +44,11 @@ struct PlayerChoiceList<Item: Hashable>: View {
     }
 
     private func row(for item: Item) -> some View {
-        let selected = isSelected(item)
-        return Button(action: { onSelect(item) }) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(titleFor(item))
-                        .font(.dsBody(12, weight: selected ? .semibold : .medium))
-                        .foregroundStyle(Color.white)
-                    if let sub = subtitleFor?(item), !sub.isEmpty {
-                        Text(sub)
-                            .font(.dsMono(9, weight: .medium))
-                            .foregroundStyle(Color.white.opacity(0.5))
-                    }
-                }
-                Spacer()
-                if selected {
-                    DSIcon(name: .check, size: 12, weight: .bold)
-                        .foregroundStyle(Color(hex: 0xFF4D5E))
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(selected ? Color.white.opacity(0.06) : Color.clear)
-            )
-        }
-        .buttonStyle(.plain)
+        PlayerChoiceRow(
+            title: titleFor(item),
+            subtitle: subtitleFor?(item),
+            isSelected: isSelected(item),
+            onSelect: { onSelect(item) }
+        )
     }
 }

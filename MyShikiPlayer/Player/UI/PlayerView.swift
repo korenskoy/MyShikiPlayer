@@ -1,6 +1,5 @@
 //
 //  PlayerView.swift
-//  MyShikiPlayer
 //
 //  Root view of the player window. A thin layer on top of ClassicPlayerOverlay:
 //  - keeps AVPlayerView in the background,
@@ -24,6 +23,8 @@ struct PlayerView: View {
     @State private var playerWindowIsKey = false
     @State private var appIsActive = NSApp.isActive
     @State private var didInitialAutostart = false
+    @State private var subtitlesAssembly = SubtitlesAssembly()
+    @State private var subtitlesCancellable: AnyCancellable?
     @AppStorage("player.alwaysOnTop") private var alwaysOnTop: Bool = false
 
     init(session: PlaybackSession, onRequestClose: (() -> Void)? = nil) {
@@ -34,6 +35,12 @@ struct PlayerView: View {
     var body: some View {
         ZStack {
             videoLayer
+
+            SubtitleOverlayView(
+                engine: session.engine,
+                store: subtitlesAssembly.store,
+                settings: subtitlesAssembly.settings
+            )
 
             ClassicPlayerOverlay(
                 session: session,
@@ -50,6 +57,7 @@ struct PlayerView: View {
                     .tint(.white)
             }
         }
+        .environment(\.subtitlesAssembly, subtitlesAssembly)
         .playerShortcuts(session: session) {
             requestClose()
         }
@@ -75,6 +83,7 @@ struct PlayerView: View {
         .onAppear {
             appIsActive = NSApp.isActive
             revealOverlayAndScheduleHide()
+            subtitlesCancellable = subtitlesAssembly.store.attach(to: session)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appIsActive = true
@@ -110,6 +119,7 @@ struct PlayerView: View {
         }
         .onDisappear {
             cancelAutoHide()
+            subtitlesCancellable = nil
             // The PlayerWindowCoordinator reuses the same NSWindow across
             // opens (`isReleasedWhenClosed = false`), so leaving the level
             // at `.floating` would leak the pin into the next session

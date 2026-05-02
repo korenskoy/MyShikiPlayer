@@ -17,4 +17,20 @@ enum SettingsKeys {
     /// covers ending too — the legacy key was never user-visible (default off,
     /// no production data) so the rename is a no-op for existing installs.
     static let autoSkipChapters = "settings.autoSkipChapters"
+
+    // MARK: - Subtitles
+
+    static let subtitlesPreferredLanguage = "subtitlesPreferredLanguage"
+    static let subtitlesUseStudioStyle = "subtitlesUseStudioStyle"
+    static let subtitlesFontFamily = "subtitlesFontFamily"
+    static let subtitlesFontSize = "subtitlesFontSize"
+    static let subtitlesFontWeight = "subtitlesFontWeight"
+    static let subtitlesTextColor = "subtitlesTextColor"
+    static let subtitlesOutlineColor = "subtitlesOutlineColor"
+    static let subtitlesOutlineWidth = "subtitlesOutlineWidth"
+    static let subtitlesShadowEnabled = "subtitlesShadowEnabled"
+    static let subtitlesBackgroundStyle = "subtitlesBackgroundStyle"
+    static let subtitlesBackgroundOpacity = "subtitlesBackgroundOpacity"
+    static let subtitlesVerticalPosition = "subtitlesVerticalPosition"
+    static let subtitlesMaxLines = "subtitlesMaxLines"
 }
