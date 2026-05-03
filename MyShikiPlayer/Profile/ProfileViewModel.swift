@@ -11,7 +11,7 @@ import Combine
 @MainActor
 final class ProfileViewModel: ObservableObject {
     @Published private(set) var profile: UserProfile?
-    @Published private(set) var favourites: [UserFavouriteAnime] = []
+    @Published private(set) var favourites: [AnimeListItem] = []
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var errorMessage: String?
 

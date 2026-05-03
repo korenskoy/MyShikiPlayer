@@ -6,6 +6,13 @@
 //  shift after each userRate change, so there is no point in caching
 //  aggressively.
 //
+//  Favourites are stored as `[AnimeListItem]` — exactly the shape the
+//  catalog uses. The pipeline is also the same: REST `/api/animes?ids=…`
+//  with `censored=false` (favourites are an explicit user choice, no
+//  filtering) followed by `PosterEnricher.enriched(...)` for any
+//  `missing_*` items. Cards render through the same `CatalogPoster` and
+//  fall back to the same striped placeholder.
+//
 
 import Foundation
 
@@ -13,19 +20,23 @@ import Foundation
 final class ProfileRepo {
     static let shared = ProfileRepo()
 
-    private static let diskFilename = "profile.json"
+    // Bumped from `profile.json` to discard snapshots saved by older
+    // versions whose favourites were the lighter UserFavouriteAnime shape.
+    private static let diskFilename = "profile-v2.json"
 
     private init() {
         let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("profile_repo_disk_loaded users=\(loaded)")
         }
+        // Best-effort cleanup of the previous-format dump.
+        DiskBackup.remove(filename: "profile.json")
         subscribeToCacheEvents()
     }
 
     struct Snapshot: Equatable, Codable {
         let profile: UserProfile
-        let favourites: [UserFavouriteAnime]
+        let favourites: [AnimeListItem]
     }
 
     private let cache = TTLCache<Int, Snapshot>(ttl: 10 * 60)
@@ -52,27 +63,14 @@ final class ProfileRepo {
             async let profile = rest.userProfile(id: userId)
             async let favourites = rest.userFavourites(id: userId)
             let rawFavs = (try? await favourites)?.animes ?? []
-            // The favourites endpoint returns `image` as a single string and
-            // often serves `missing_*` placeholders. Re-fetch those titles via
-            // REST `/api/animes?ids=…` — that endpoint always returns the full
-            // `AnimeImageURLs` set when the title still exists.
-            let missingIds = rawFavs
-                .filter { ($0.image ?? "").isEmpty || ($0.image ?? "").contains("missing_") }
-                .map(\.id)
-            let posterById = await Self.fetchPosters(rest: rest, ids: missingIds)
-            let enrichedFavs = rawFavs.map { fav -> UserFavouriteAnime in
-                guard let enriched = posterById[fav.id] else { return fav }
-                return UserFavouriteAnime(
-                    id: fav.id,
-                    name: fav.name,
-                    russian: fav.russian,
-                    image: enriched,
-                    url: fav.url
-                )
-            }
+            let favs = await Self.loadFavouriteListItems(
+                rest: rest,
+                configuration: configuration,
+                rawFavs: rawFavs
+            )
             let snap = try Snapshot(
                 profile: await profile,
-                favourites: enrichedFavs
+                favourites: favs
             )
             self?.cache.set(snap, for: userId)
             if let strongSelf = self {
@@ -101,46 +99,49 @@ final class ProfileRepo {
         DiskBackup.remove(filename: Self.diskFilename)
     }
 
-    // MARK: - Poster backfill
+    // MARK: - Favourites loader
 
-    /// Fetches `AnimeListItem`s for the given ids in REST batches of 50 and
-    /// returns a `[id: posterURL]` map. Empty / `missing_*` posters are
-    /// dropped so the caller can keep the original `image` string.
-    private static func fetchPosters(
+    /// Re-fetches favourites as `AnimeListItem`s through the same pipeline
+    /// the catalog uses: REST `/api/animes?ids=…&censored=false` for the
+    /// fields, then `PosterEnricher.enriched(...)` for any `missing_*`
+    /// posters. Order matches the original favourites list.
+    private static func loadFavouriteListItems(
         rest: ShikimoriRESTClient,
-        ids: [Int]
-    ) async -> [Int: String] {
-        guard !ids.isEmpty else { return [:] }
-        var result: [Int: String] = [:]
+        configuration: ShikimoriConfiguration,
+        rawFavs: [UserFavouriteAnime]
+    ) async -> [AnimeListItem] {
+        guard !rawFavs.isEmpty else { return [] }
+        let orderedIds = rawFavs.map(\.id)
+
         let batchSize = 50
-        let chunks = stride(from: 0, to: ids.count, by: batchSize).map { offset -> [Int] in
-            Array(ids[offset..<min(offset + batchSize, ids.count)])
+        var fetchedById: [Int: AnimeListItem] = [:]
+        let chunks = stride(from: 0, to: orderedIds.count, by: batchSize).map { offset -> [Int] in
+            Array(orderedIds[offset..<min(offset + batchSize, orderedIds.count)])
         }
         for chunk in chunks {
             var query = AnimeListQuery()
             query.ids = chunk.map(String.init).joined(separator: ",")
             query.limit = chunk.count
+            // Favourites are an explicit user choice — disable the default
+            // adult-rating filter so nothing gets dropped.
+            query.censored = false
             do {
                 let items = try await rest.animes(query: query)
                 for item in items {
-                    let raw = (item.image?.preview).flatMap(Self.usable)
-                        ?? (item.image?.original).flatMap(Self.usable)
-                    if let raw {
-                        result[item.id] = raw
-                    }
+                    fetchedById[item.id] = item
                 }
             } catch {
                 NetworkLogStore.shared.logAppError(
-                    "profile_repo_poster_fetch_failed ids=\(chunk.count) err=\(error.localizedDescription)"
+                    "profile_repo_favs_fetch_failed ids=\(chunk.count) err=\(error.localizedDescription)"
                 )
             }
         }
-        return result
-    }
 
-    private static func usable(_ raw: String) -> String? {
-        guard !raw.isEmpty, !raw.contains("missing_") else { return nil }
-        return raw
+        // Preserve favourites order; drop anything REST didn't return (rare —
+        // happens for deleted titles).
+        let inOrder = orderedIds.compactMap { fetchedById[$0] }
+        // Same poster enrichment path the catalog uses.
+        return await PosterEnricher.shared.enriched(configuration: configuration, items: inOrder)
     }
 
     // MARK: - Event subscriptions (Iter 4)
