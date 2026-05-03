@@ -32,7 +32,7 @@ struct HomeView: View {
                 }
 
                 if !vm.continueWatching.isEmpty {
-                    sectionHeader(kicker: "NIDZUITE", title: "Продолжить просмотр", action: nil)
+                    sectionHeader(title: "Продолжить просмотр", action: nil)
                     LazyVGrid(columns: cols(4), alignment: .leading, spacing: 14) {
                         ForEach(vm.continueWatching) { item in
                             HomeContinueCard(item: item) { onOpenDetails(item.id) }
@@ -41,7 +41,7 @@ struct HomeView: View {
                 }
 
                 if !vm.trending.isEmpty {
-                    sectionHeader(kicker: "TRENDING", title: "В тренде сегодня", action: nil)
+                    sectionHeader(title: "В тренде сегодня", action: nil)
                     LazyVGrid(columns: cols(6), alignment: .leading, spacing: 14) {
                         ForEach(Array(vm.trending.enumerated()), id: \.element.id) { idx, item in
                             HomePosterCard(item: item, rank: idx + 1) { onOpenDetails(item.id) }
@@ -50,7 +50,7 @@ struct HomeView: View {
                 }
 
                 if !vm.newEpisodes.isEmpty {
-                    sectionHeader(kicker: "NEW EPISODES", title: "Новые серии", action: ("Расписание →", onOpenSchedule))
+                    sectionHeader(title: "Новые серии", action: ("Расписание →", onOpenSchedule))
                     LazyVGrid(columns: cols(6), alignment: .leading, spacing: 14) {
                         ForEach(vm.newEpisodes, id: \.id) { item in
                             HomePosterCard(item: item, rank: nil) { onOpenDetails(item.id) }
@@ -59,7 +59,7 @@ struct HomeView: View {
                 }
 
                 if vm.recommendations.count >= 1 {
-                    sectionHeader(kicker: "REKOMENDO", title: "Для вас", action: nil)
+                    sectionHeader(title: "Для вас", action: nil)
                     recommendationsGrid
                 }
 
@@ -93,18 +93,12 @@ struct HomeView: View {
         Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: count)
     }
 
-    private func sectionHeader(kicker: String, title: String, action: (String, () -> Void)?) -> some View {
+    private func sectionHeader(title: String, action: (String, () -> Void)?) -> some View {
         HStack(alignment: .lastTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(kicker)
-                    .font(.dsLabel(10, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                Text(title)
-                    .font(.dsTitle(22, weight: .bold))
-                    .tracking(-0.3)
-                    .foregroundStyle(theme.fg)
-            }
+            Text(title)
+                .font(.dsTitle(22, weight: .bold))
+                .tracking(-0.3)
+                .foregroundStyle(theme.fg)
             Spacer()
             if let action {
                 Button(action: action.1) {

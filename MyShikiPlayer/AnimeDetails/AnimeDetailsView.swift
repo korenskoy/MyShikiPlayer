@@ -133,7 +133,6 @@ struct AnimeDetailsView: View {
         VStack(alignment: .leading, spacing: 0) {
             if !vm.isAnons {
                 DetailsSectionHeader(
-                    kicker: "EPISODES",
                     title: "Эпизоды",
                     action: episodesAction,
                     isCollapsed: Binding(
@@ -165,13 +164,12 @@ struct AnimeDetailsView: View {
             // BBCode + html_body pairing.
             if let description = vm.detail?.descriptionHtml?.nilIfEmpty
                 ?? vm.detail?.description?.nilIfEmpty {
-                DetailsSectionHeader(kicker: "SYNOPSIS", title: "Описание", action: nil)
+                DetailsSectionHeader(title: "Описание", action: nil)
                 DescriptionSection(rawDescription: description, onOpenAnimeId: onOpenAnimeId)
             }
 
             if !vm.allScreenshots.isEmpty {
                 DetailsSectionHeader(
-                    kicker: "SHOTS",
                     title: "Скриншоты",
                     action: vm.allScreenshots.count > 1 ? "\(vm.allScreenshots.count) шт." : nil
                 )
@@ -182,7 +180,6 @@ struct AnimeDetailsView: View {
 
             if !vm.trailerVideos.isEmpty {
                 DetailsSectionHeader(
-                    kicker: "VIDEOS",
                     title: "Трейлеры и ролики",
                     action: vm.trailerVideos.count > 1 ? "\(vm.trailerVideos.count) шт." : nil
                 )
@@ -190,7 +187,7 @@ struct AnimeDetailsView: View {
             }
 
             if !vm.related.isEmpty {
-                DetailsSectionHeader(kicker: "SIMILAR", title: "Похожее", action: nil)
+                DetailsSectionHeader(title: "Похожее", action: nil)
                 SimilarSection(items: vm.related, onOpen: onOpenAnime)
             }
         }

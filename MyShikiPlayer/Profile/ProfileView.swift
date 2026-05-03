@@ -27,19 +27,19 @@ struct ProfileView: View {
                     kpiRow
 
                     if !vm.statusBuckets.isEmpty {
-                        sectionBlock(kicker: "LISTS", title: "Списки") {
+                        sectionBlock(title: "Списки") {
                             ProfileStatusBar(buckets: vm.statusBuckets)
                         }
                     }
 
                     if vm.ratingHistogram.reduce(0, +) > 0 {
-                        sectionBlock(kicker: "SCORES", title: "Оценки") {
+                        sectionBlock(title: "Оценки") {
                             ProfileRatingChart(bins: vm.ratingHistogram, average: vm.averageScore)
                         }
                     }
 
                     if !vm.favourites.isEmpty {
-                        sectionBlock(kicker: "FAVOURITES", title: "Избранное") {
+                        sectionBlock(title: "Избранное") {
                             ProfileFavouritesGrid(favourites: vm.favourites, onOpen: onOpenAnime)
                         }
                     }
@@ -74,19 +74,14 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Top bar (kicker + settings button)
+    // MARK: - Top bar (page title + settings button)
 
     private var topBar: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("PROFILE")
-                    .font(.dsLabel(10, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                Text("Мой аккаунт")
-                    .font(.dsTitle(18, weight: .semibold))
-                    .foregroundStyle(theme.fg)
-            }
+            Text("Мой аккаунт")
+                .font(.dsTitle(22, weight: .bold))
+                .tracking(-0.3)
+                .foregroundStyle(theme.fg)
             Spacer()
             Button {
                 isSettingsPresented = true
@@ -151,21 +146,14 @@ struct ProfileView: View {
     // MARK: - Section block
 
     private func sectionBlock<Content: View>(
-        kicker: String,
         title: String,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(kicker)
-                    .font(.dsLabel(10, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                Text(title)
-                    .font(.dsTitle(20, weight: .bold))
-                    .tracking(-0.3)
-                    .foregroundStyle(theme.fg)
-            }
+            Text(title)
+                .font(.dsTitle(20, weight: .bold))
+                .tracking(-0.3)
+                .foregroundStyle(theme.fg)
             content()
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)

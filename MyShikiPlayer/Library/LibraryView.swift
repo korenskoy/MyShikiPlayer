@@ -84,20 +84,14 @@ struct LibraryView: View {
 
     private var header: some View {
         HStack(alignment: .bottom, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("МОИ СПИСКИ · MY LISTS")
-                    .font(.dsLabel(10, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Моя библиотека")
-                        .font(.dsDisplay(28, weight: .bold))
-                        .tracking(-0.5)
-                        .foregroundStyle(theme.fg)
-                    Text("· \(filteredItems.count)")
-                        .font(.dsTitle(24))
-                        .foregroundStyle(theme.fg3)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Моя библиотека")
+                    .font(.dsDisplay(28, weight: .bold))
+                    .tracking(-0.5)
+                    .foregroundStyle(theme.fg)
+                Text("· \(filteredItems.count)")
+                    .font(.dsTitle(24))
+                    .foregroundStyle(theme.fg3)
             }
             Spacer()
             if model.isLoading {

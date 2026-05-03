@@ -2,11 +2,10 @@
 //  DetailsSectionHeader.swift
 //  MyShikiPlayer
 //
-//  Section header on the detail screen: mono kicker + large title +
-//  optional action string on the right (plain text, not a button).
-//  If `isCollapsed` is passed — only the right cluster (action + chevron) is
-//  the click target, with a pointer cursor on hover; the title text stays
-//  selectable/non-interactive.
+//  Section header on the detail screen: large title + optional action string
+//  on the right (plain text, not a button). If `isCollapsed` is passed —
+//  only the right cluster (action + chevron) is the click target, with a
+//  pointer cursor on hover; the title text stays selectable/non-interactive.
 //
 
 import AppKit
@@ -14,18 +13,15 @@ import SwiftUI
 
 struct DetailsSectionHeader: View {
     @Environment(\.appTheme) private var theme
-    let kicker: String?
     let title: String
     let action: String?
     let isCollapsed: Binding<Bool>?
 
     init(
-        kicker: String?,
         title: String,
         action: String?,
         isCollapsed: Binding<Bool>? = nil
     ) {
-        self.kicker = kicker
         self.title = title
         self.action = action
         self.isCollapsed = isCollapsed
@@ -33,18 +29,10 @@ struct DetailsSectionHeader: View {
 
     var body: some View {
         HStack(alignment: .lastTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                if let kicker {
-                    Text(kicker)
-                        .font(.dsLabel(10))
-                        .tracking(1.8)
-                        .foregroundStyle(theme.accent)
-                }
-                Text(title)
-                    .font(.dsTitle(22, weight: .bold))
-                    .foregroundStyle(theme.fg)
-                    .tracking(-0.3)
-            }
+            Text(title)
+                .font(.dsTitle(22, weight: .bold))
+                .foregroundStyle(theme.fg)
+                .tracking(-0.3)
             Spacer(minLength: 12)
             rightCluster
         }

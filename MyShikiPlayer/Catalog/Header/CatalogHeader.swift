@@ -29,20 +29,14 @@ struct CatalogHeader: View {
 
     private var topRow: some View {
         HStack(alignment: .bottom, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("КАТАЛОГ · KATALOG")
-                    .font(.dsLabel(10))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Весь каталог")
-                        .font(.dsDisplay(28, weight: .bold))
-                        .foregroundStyle(theme.fg)
-                        .tracking(-0.5)
-                    Text("· \(totalCount)")
-                        .font(.dsTitle(24, weight: .regular))
-                        .foregroundStyle(theme.fg3)
-                }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Весь каталог")
+                    .font(.dsDisplay(28, weight: .bold))
+                    .foregroundStyle(theme.fg)
+                    .tracking(-0.5)
+                Text("· \(totalCount)")
+                    .font(.dsTitle(24, weight: .regular))
+                    .foregroundStyle(theme.fg3)
             }
 
             Spacer(minLength: 12)

@@ -102,10 +102,6 @@ struct SocialView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("COMMUNITY")
-                .font(.dsLabel(10, weight: .bold))
-                .tracking(1.8)
-                .foregroundStyle(theme.accent)
             HStack {
                 Text("Лента")
                     .font(.dsTitle(28, weight: .bold))
