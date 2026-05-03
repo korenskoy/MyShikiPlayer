@@ -18,10 +18,13 @@ struct ContentView: View {
     @StateObject private var networkLogs = NetworkLogStore.shared
     @StateObject private var updates = UpdateCheckService.shared
     @State private var isLogPanelExpanded = false
-    @AppStorage("app.theme") private var themeId: String = AppTheme.paper.id
+    @AppStorage("app.theme") private var themeId: String = AppTheme.autoOtakuId
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
+    @Environment(\.colorScheme) private var systemScheme
 
-    private var theme: AppTheme { AppTheme.byId(themeId) }
+    private var theme: AppTheme {
+        AppTheme.resolve(id: themeId, systemScheme: systemScheme)
+    }
 
     var body: some View {
         Group {

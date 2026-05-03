@@ -22,9 +22,12 @@ struct AppShellView: View {
     @State private var isSearchPresented: Bool = false
     @State private var searchOpenedDetailId: Int?
     @State private var mouseSideButtonsMonitor: Any?
-    @AppStorage("app.theme") private var themeId: String = AppTheme.paper.id
+    @AppStorage("app.theme") private var themeId: String = AppTheme.autoOtakuId
+    @Environment(\.colorScheme) private var systemScheme
 
-    private var theme: AppTheme { AppTheme.byId(themeId) }
+    private var theme: AppTheme {
+        AppTheme.resolve(id: themeId, systemScheme: systemScheme)
+    }
 
     var body: some View {
         ZStack {

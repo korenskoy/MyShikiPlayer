@@ -2,8 +2,16 @@
 //  AppTheme.swift
 //  MyShikiPlayer
 //
-//  Paper / Midnight / Plum — palettes from myshikiplayer_design_reference/project/themes.jsx.
-//  Default is paper. The player always uses .midnight regardless of the selected app theme.
+//  Palettes from myshikiplayer_design_reference/project/themes.jsx.
+//
+//  Two paired families:
+//      Otaku  — midnight (dark) ↔ paper (light)   — red/coral accent
+//      Plum   — plum (dark) ↔ slate (light)       — cyan accent
+//
+//  Auto themes (`auto.otaku`, `auto.plum`) follow the system appearance and
+//  switch between the dark and light family member.
+//
+//  The player always uses .midnight regardless of the selected app theme.
 //
 
 import SwiftUI
@@ -48,29 +56,6 @@ struct AppTheme: Equatable {
 // MARK: - Palettes
 
 extension AppTheme {
-    static let paper = AppTheme(
-        id: "paper",
-        name: "Paper Daylight",
-        mode: .light,
-        bg:      Color(hex: 0xF4EFE6),
-        bg2:     Color(hex: 0xECE5D7),
-        bg3:     Color(hex: 0xE2D9C6),
-        card:    Color(hex: 0xFBF6EC),
-        line:    Color(hex: 0x17130E, opacity: 0.12),
-        line2:   Color(hex: 0x17130E, opacity: 0.22),
-        fg:      Color(hex: 0x17130E),
-        fg2:     Color(hex: 0x17130E, opacity: 0.70),
-        fg3:     Color(hex: 0x17130E, opacity: 0.45),
-        accent:  Color(hex: 0xD9412B),
-        accent2: Color(hex: 0xD97757),
-        good:    Color(hex: 0x3D8A55),
-        warn:    Color(hex: 0xC28A1D),
-        violet:  Color(hex: 0x6B4AC9),
-        chipBg:  Color(hex: 0x17130E, opacity: 0.05),
-        chipBr:  Color(hex: 0x17130E, opacity: 0.14),
-        glow:    Color(hex: 0xD9412B)
-    )
-
     static let midnight = AppTheme(
         id: "midnight",
         name: "Midnight Otaku",
@@ -117,17 +102,90 @@ extension AppTheme {
         glow:    Color(hex: 0x00E3FF)
     )
 
-    static let all: [AppTheme] = [.paper, .midnight, .plum]
+    static let paper = AppTheme(
+        id: "paper",
+        name: "Daylight Otaku",
+        mode: .light,
+        bg:      Color(hex: 0xFBFAF7),
+        bg2:     Color(hex: 0xF1EFE9),
+        bg3:     Color(hex: 0xE7E4DC),
+        card:    Color(hex: 0xFFFFFF),
+        line:    Color(hex: 0x0B0A0D, opacity: 0.10),
+        line2:   Color(hex: 0x0B0A0D, opacity: 0.18),
+        fg:      Color(hex: 0x0B0A0D),
+        fg2:     Color(hex: 0x0B0A0D, opacity: 0.70),
+        fg3:     Color(hex: 0x0B0A0D, opacity: 0.45),
+        accent:  Color(hex: 0xFF4D5E),
+        accent2: Color(hex: 0xFFB199),
+        good:    Color(hex: 0x3D8A55),
+        warn:    Color(hex: 0xC28A1D),
+        violet:  Color(hex: 0x6B4AC9),
+        chipBg:  Color(hex: 0x0B0A0D, opacity: 0.05),
+        chipBr:  Color(hex: 0x0B0A0D, opacity: 0.12),
+        glow:    Color(hex: 0xFF4D5E)
+    )
+
+    static let slate = AppTheme(
+        id: "slate",
+        name: "Daylight Plum",
+        mode: .light,
+        bg:      Color(hex: 0xF6F3FB),
+        bg2:     Color(hex: 0xECE6F4),
+        bg3:     Color(hex: 0xDDD3EA),
+        card:    Color(hex: 0xFDFBFF),
+        line:    Color(hex: 0x140C28, opacity: 0.10),
+        line2:   Color(hex: 0x140C28, opacity: 0.18),
+        fg:      Color(hex: 0x1A1230),
+        fg2:     Color(hex: 0x1A1230, opacity: 0.70),
+        fg3:     Color(hex: 0x1A1230, opacity: 0.46),
+        accent:  Color(hex: 0x0099B3),
+        accent2: Color(hex: 0xD62AA2),
+        good:    Color(hex: 0x1F8A55),
+        warn:    Color(hex: 0xB07A12),
+        violet:  Color(hex: 0x6B3EC9),
+        chipBg:  Color(hex: 0x140C28, opacity: 0.05),
+        chipBr:  Color(hex: 0x140C28, opacity: 0.12),
+        glow:    Color(hex: 0x0099B3)
+    )
+
+    /// Concrete palettes available for direct selection (and for resolving
+    /// auto-pair ids into a real theme).
+    static let allFixed: [AppTheme] = [.midnight, .plum, .paper, .slate]
+
+    /// Auto-pair ids — virtual themes whose actual palette depends on the
+    /// system appearance.
+    static let autoOtakuId = "auto.otaku"
+    static let autoPlumId = "auto.plum"
+    static let autoIds: [String] = [autoOtakuId, autoPlumId]
 
     static func byId(_ id: String) -> AppTheme {
-        all.first { $0.id == id } ?? .paper
+        allFixed.first { $0.id == id } ?? .midnight
+    }
+
+    /// Resolve a stored theme id to a concrete palette, honouring the active
+    /// system color scheme for `auto.*` ids.
+    static func resolve(id: String, systemScheme: ColorScheme) -> AppTheme {
+        switch id {
+        case autoOtakuId: return systemScheme == .dark ? .midnight : .paper
+        case autoPlumId:  return systemScheme == .dark ? .plum : .slate
+        default:          return byId(id)
+        }
+    }
+
+    /// Human-readable name for any selectable id (including `auto.*`).
+    static func displayName(for id: String) -> String {
+        switch id {
+        case autoOtakuId: return "Авто · Otaku"
+        case autoPlumId:  return "Авто · Plum"
+        default:          return byId(id).name
+        }
     }
 }
 
 // MARK: - Environment
 
 private struct AppThemeKey: EnvironmentKey {
-    static let defaultValue: AppTheme = .paper
+    static let defaultValue: AppTheme = .midnight
 }
 
 extension EnvironmentValues {
