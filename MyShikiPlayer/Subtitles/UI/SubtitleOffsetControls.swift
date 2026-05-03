@@ -24,7 +24,7 @@ struct SubtitleOffsetControls: View {
       offsetButton(label: "−0.5s") { store.adjustOffset(by: -0.5) }
 
       Text("Сдвиг: \(formattedOffset)")
-        .font(.dsMono(10, weight: .medium))
+        .font(.dsTechMono(10, weight: .medium))
         .foregroundStyle(Color.white.opacity(0.7))
         .frame(maxWidth: .infinity)
         .lineLimit(1)

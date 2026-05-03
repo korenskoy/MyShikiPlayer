@@ -114,7 +114,7 @@ struct SubtitleSettingsView: View {
           .font(.dsBody(13))
         Spacer()
         Text("\(Int(settings.fontSize)) pt")
-          .font(.dsMono(12, weight: .semibold))
+          .font(.dsTechMono(12, weight: .semibold))
           .foregroundStyle(.secondary)
       }
       HStack(spacing: 8) {
@@ -170,7 +170,7 @@ struct SubtitleSettingsView: View {
           .font(.dsBody(13))
         Spacer()
         Text(String(format: "%.1f", settings.outlineWidth))
-          .font(.dsMono(12, weight: .semibold))
+          .font(.dsTechMono(12, weight: .semibold))
           .foregroundStyle(.secondary)
       }
       Slider(value: $settings.outlineWidth, in: 0...6, step: 0.5)
@@ -201,7 +201,7 @@ struct SubtitleSettingsView: View {
           .font(.dsBody(13))
         Spacer()
         Text("\(Int((settings.backgroundOpacity * 100).rounded()))%")
-          .font(.dsMono(12, weight: .semibold))
+          .font(.dsTechMono(12, weight: .semibold))
           .foregroundStyle(.secondary)
       }
       Slider(value: $settings.backgroundOpacity, in: 0...1, step: 0.05)
@@ -217,7 +217,7 @@ struct SubtitleSettingsView: View {
           .font(.dsBody(13))
         Spacer()
         Text(String(format: "%.0f%%", settings.verticalPosition * 100))
-          .font(.dsMono(12, weight: .semibold))
+          .font(.dsTechMono(12, weight: .semibold))
           .foregroundStyle(.secondary)
       }
       Slider(value: $settings.verticalPosition, in: 0.5...0.98, step: 0.01)

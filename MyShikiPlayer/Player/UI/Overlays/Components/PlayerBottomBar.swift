@@ -116,10 +116,10 @@ struct PlayerBottomBar: View {
     private var timecode: some View {
         HStack(spacing: 4) {
             Text(PlayerTimeFormatter.mmss(engine.currentTime))
-                .font(.dsMono(13, weight: .semibold))
+                .font(.dsTechMono(13, weight: .semibold))
                 .foregroundStyle(Color.white)
             Text("/ \(PlayerTimeFormatter.mmss(engine.duration))")
-                .font(.dsMono(13, weight: .medium))
+                .font(.dsTechMono(13, weight: .medium))
                 .foregroundStyle(Color.white.opacity(0.4))
         }
     }
