@@ -14,16 +14,13 @@ struct SettingsView: View {
     @ObservedObject private var updateService = UpdateCheckService.shared
     @StateObject private var cacheModel = ImageCacheSettingsModel()
     @StateObject private var hostsModel = SettingsHostsModel()
-    @AppStorage("kodik.apiToken") private var kodikApiToken: String = ""
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
     @AppStorage(SettingsKeys.autoSkipChapters) private var autoSkipChapters: Bool = false
     @AppStorage("settings.hostsSectionCollapsed") private var hostsSectionCollapsed: Bool = true
-    @State private var draftKodikToken: String = ""
-    @State private var tokenAutosaveFeedback = false
+    @AppStorage("settings.subtitlesSectionCollapsed") private var subtitlesSectionCollapsed: Bool = true
     @State private var repoCacheFlash = false
     @State private var isCheckingUpdates = false
     @State private var updateCheckCompleted = false
-    @FocusState private var kodikTokenFieldFocused: Bool
 
     let onSignOut: () -> Void
     let onClose: () -> Void
@@ -37,7 +34,6 @@ struct SettingsView: View {
                     hostsSection
                     playerSection
                     subtitlesSection
-                    kodikSection
                     diagnosticsSection
                     updatesSection
                     cacheSection
@@ -50,7 +46,6 @@ struct SettingsView: View {
         .frame(minWidth: 520, minHeight: 560)
         .background(theme.bg)
         .task {
-            draftKodikToken = kodikApiToken
             hostsModel.reloadFromDefaults()
             await cacheModel.refreshSize()
         }
@@ -60,15 +55,9 @@ struct SettingsView: View {
 
     private var header: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("SETTINGS")
-                    .font(.dsLabel(10, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                Text("Настройки")
-                    .font(.dsTitle(20, weight: .bold))
-                    .foregroundStyle(theme.fg)
-            }
+            Text("Настройки")
+                .font(.dsTitle(20, weight: .bold))
+                .foregroundStyle(theme.fg)
             Spacer()
             Button(action: onClose) {
                 DSIcon(name: .xmark, size: 14, weight: .semibold)
@@ -106,7 +95,7 @@ struct SettingsView: View {
     private var hostsSection: some View {
         SettingsSection(
             title: "Домены",
-            description: "Свои хосты для Shikimori и Kodik. Изменения применятся при следующем запросе. Учётка не сбрасывается.",
+            description: "Свои хосты для Shikimori и Kodik + API-токен Kodik. Изменения применятся при следующем запросе. Учётка не сбрасывается.",
             isCollapsed: $hostsSectionCollapsed
         ) {
             VStack(alignment: .leading, spacing: 12) {
@@ -139,19 +128,21 @@ struct SettingsView: View {
                     onCommit: { hostsModel.commit(.kodikReferer) }
                 )
 
-                HStack(spacing: 10) {
-                    Button("Сбросить", role: .destructive) {
-                        hostsModel.resetAll()
-                    }
-                    .buttonStyle(.bordered)
-
+                // Reserve a constant-height row for the autosave feedback so
+                // the section never reflows when a field is committed.
+                HStack(spacing: 6) {
                     if hostsModel.savedFlash {
                         Label("Сохранено", systemImage: "checkmark.circle.fill")
                             .font(.footnote)
                             .foregroundStyle(.green)
                     }
                 }
-                .frame(height: 28, alignment: .leading)
+                .frame(height: 18, alignment: .leading)
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                SettingsKodikTokenField()
             }
         }
     }
@@ -176,6 +167,22 @@ struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .stroke(isValid ? Color.clear : Color.red, lineWidth: 1)
                 )
+                .overlay(alignment: .trailing) {
+                    if !text.wrappedValue.isEmpty {
+                        Button {
+                            text.wrappedValue = ""
+                            onCommit()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(theme.fg3)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 6)
+                        .help("Сбросить к значению по умолчанию")
+                    }
+                }
             // Reserve a constant-height row for the validation label so the
             // section never reflows when the user mistypes a host.
             Text(isValid ? " " : "Невалидный домен")
@@ -206,41 +213,10 @@ struct SettingsView: View {
     private var subtitlesSection: some View {
         SettingsSection(
             title: "Субтитры",
-            description: "Настройки субтитров из Anime365: язык, студийный стиль и собственное оформление."
+            description: "Настройки субтитров из Anime365: язык, студийный стиль и собственное оформление.",
+            isCollapsed: $subtitlesSectionCollapsed
         ) {
             SubtitleSettingsView(settings: SubtitleSettings.shared)
-        }
-    }
-
-    // MARK: - Kodik
-
-    private var kodikSection: some View {
-        SettingsSection(
-            title: "Kodik",
-            description: "API-токен для поиска видео-источников. Хранится локально."
-        ) {
-            SecureField("API токен Kodik", text: $draftKodikToken)
-                .textFieldStyle(.roundedBorder)
-                .focused($kodikTokenFieldFocused)
-                .onSubmit { persistKodikToken() }
-                .onChange(of: kodikTokenFieldFocused) { _, isFocused in
-                    if !isFocused { persistKodikToken() }
-                }
-
-            HStack(spacing: 10) {
-                Button("Очистить токен", role: .destructive) {
-                    draftKodikToken = ""
-                    kodikApiToken = ""
-                    NetworkLogStore.shared.logUIEvent("kodik_token_cleared")
-                }
-                .buttonStyle(.bordered)
-
-                if tokenAutosaveFeedback {
-                    Label("Сохранено", systemImage: "checkmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.green)
-                }
-            }
         }
     }
 
@@ -316,7 +292,7 @@ struct SettingsView: View {
                     .foregroundStyle(theme.fg)
                 Spacer()
                 Text(cacheModel.formattedSize)
-                    .font(.dsMono(12, weight: .semibold))
+                    .font(.dsTechMono(12, weight: .semibold))
                     .foregroundStyle(theme.fg2)
             }
 
@@ -388,15 +364,4 @@ struct SettingsView: View {
         }
     }
 
-    private func persistKodikToken() {
-        let trimmed = draftKodikToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard kodikApiToken != trimmed else { return }
-        kodikApiToken = trimmed
-        NetworkLogStore.shared.logUIEvent("kodik_token_saved")
-        tokenAutosaveFeedback = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            tokenAutosaveFeedback = false
-        }
-    }
 }
