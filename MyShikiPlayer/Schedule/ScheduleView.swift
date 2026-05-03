@@ -47,10 +47,6 @@ struct ScheduleView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("KARENDĀ")
-                .font(.dsLabel(10, weight: .bold))
-                .tracking(1.8)
-                .foregroundStyle(theme.accent)
             Text("Расписание онгоингов")
                 .font(.dsTitle(28, weight: .bold))
                 .tracking(-0.4)
@@ -68,14 +64,18 @@ struct ScheduleView: View {
     private func daySection(_ section: ScheduleDaySection) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .lastTextBaseline, spacing: 10) {
-                Text(Self.kickerFor(day: section.day))
-                    .font(.dsLabel(10, weight: .bold))
-                    .tracking(1.8)
-                    .foregroundStyle(theme.accent)
-                Text(Self.titleFor(day: section.day))
-                    .font(.dsTitle(20, weight: .bold))
-                    .tracking(-0.3)
-                    .foregroundStyle(theme.fg)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let kicker = Self.relativeKicker(for: section.day) {
+                        Text(kicker)
+                            .font(.dsLabel(10, weight: .bold))
+                            .tracking(1.8)
+                            .foregroundStyle(theme.accent)
+                    }
+                    Text(Self.titleFor(day: section.day))
+                        .font(.dsTitle(20, weight: .bold))
+                        .tracking(-0.3)
+                        .foregroundStyle(theme.fg)
+                }
                 Spacer()
                 Text("\(section.entries.count) \(Self.episodeWord(section.entries.count))")
                     .font(.dsMono(11))
@@ -128,19 +128,16 @@ struct ScheduleView: View {
         Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: count)
     }
 
-    /// "TODAY", "TOMORROW", "MON", etc. — short accent kicker.
-    private static func kickerFor(day: Date) -> String {
+    /// "СЕГОДНЯ" / "ЗАВТРА" only. Other days don't get a kicker — the dated
+    /// title ("Среда, 23 апреля") is enough on its own.
+    private static func relativeKicker(for day: Date) -> String? {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
         let diff = calendar.dateComponents([.day], from: today, to: day).day ?? 0
         switch diff {
-        case 0: return "TODAY"
-        case 1: return "TOMORROW"
-        default:
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: "en_US_POSIX")
-            fmt.dateFormat = "EEE"
-            return fmt.string(from: day).uppercased()
+        case 0: return "СЕГОДНЯ"
+        case 1: return "ЗАВТРА"
+        default: return nil
         }
     }
 
