@@ -1,8 +1,8 @@
 // Single source of truth for app version and build number (CFBundleShortVersionString / CFBundleVersion).
 // Included from Shikimori.xcconfig (app) and used as base for test targets.
 
-MARKETING_VERSION = 1.2.0
-CURRENT_PROJECT_VERSION = 242
+MARKETING_VERSION = 1.2.1
+CURRENT_PROJECT_VERSION = 249
 
 // Allow per-machine signing overrides (DEVELOPMENT_TEAM, etc.) to flow into test targets too.
 #include? "Local.xcconfig"
