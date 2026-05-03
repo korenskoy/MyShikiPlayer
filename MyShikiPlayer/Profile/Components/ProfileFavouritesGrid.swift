@@ -2,7 +2,9 @@
 //  ProfileFavouritesGrid.swift
 //  MyShikiPlayer
 //
-//  Favourites poster grid (2:3). 6 columns, first 12 entries + counter.
+//  Favourites poster grid (2:3). 6 columns, first 12 entries.
+//  Reuses CatalogPoster so missing posters fall back to the same striped
+//  placeholder used elsewhere in the app instead of a "?" tile.
 //
 
 import SwiftUI
@@ -15,7 +17,11 @@ struct ProfileFavouritesGrid: View {
     private let maxVisible = 12
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: 6), alignment: .leading, spacing: 14) {
+        LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: 14, alignment: .top), count: 6),
+            alignment: .leading,
+            spacing: 14
+        ) {
             ForEach(favourites.prefix(maxVisible), id: \.id) { fav in
                 card(fav)
             }
@@ -27,9 +33,10 @@ struct ProfileFavouritesGrid: View {
             onOpen(fav.id)
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                posterArea(fav)
+                CatalogPoster(item: Self.toListItem(fav), showsScoreBadge: false)
+                    .aspectRatio(2.0 / 3.0, contentMode: .fit)
                 Text(displayTitle(fav))
-                    .font(.dsBody(12, weight: .semibold))
+                    .font(.dsBody(13, weight: .semibold))
                     .foregroundStyle(theme.fg)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
@@ -40,48 +47,34 @@ struct ProfileFavouritesGrid: View {
         .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private func posterArea(_ fav: UserFavouriteAnime) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(theme.bg2)
-            if let url = posterURL(raw: fav.image) {
-                CachedRemoteImage(
-                    url: url,
-                    contentMode: .fill,
-                    placeholder: { Color.clear },
-                    failure: { placeholder }
-                )
-            } else {
-                placeholder
-            }
-        }
-        .aspectRatio(2.0 / 3.0, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(theme.line, lineWidth: 1)
-        )
-    }
-
-    private var placeholder: some View {
-        ZStack {
-            theme.bg2
-            Text("?")
-                .font(.dsTitle(22, weight: .heavy))
-                .foregroundStyle(theme.fg3)
-        }
-    }
-
-    private func posterURL(raw: String?) -> URL? {
-        guard let raw, !raw.isEmpty, !raw.contains("missing_") else { return nil }
-        if raw.hasPrefix("http") { return URL(string: raw) }
-        if raw.hasPrefix("/") { return ShikimoriURL.media(path: raw) }
-        return URL(string: raw)
-    }
-
     private func displayTitle(_ fav: UserFavouriteAnime) -> String {
         if let r = fav.russian, !r.isEmpty { return r }
         return fav.name ?? "—"
+    }
+
+    /// Lifts the lightweight favourites payload (id + names + single image
+    /// string) into the richer `AnimeListItem` that `CatalogPoster` consumes.
+    /// Missing fields stay nil; the poster filters `missing_*` strings on its
+    /// own and falls back to the striped placeholder.
+    private static func toListItem(_ fav: UserFavouriteAnime) -> AnimeListItem {
+        AnimeListItem(
+            id: fav.id,
+            name: fav.name ?? "",
+            russian: fav.russian,
+            image: AnimeImageURLs(
+                original: fav.image,
+                preview: fav.image,
+                x96: nil,
+                x48: nil
+            ),
+            url: fav.url,
+            kind: nil,
+            score: nil,
+            status: nil,
+            episodes: nil,
+            episodesAired: nil,
+            airedOn: nil,
+            releasedOn: nil
+        )
     }
 }

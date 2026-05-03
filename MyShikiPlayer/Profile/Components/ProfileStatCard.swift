@@ -34,8 +34,11 @@ struct ProfileStatCard: View {
                     .font(.dsMono(10))
                     .foregroundStyle(theme.fg3)
             }
+            // Trailing flex space — lets cards in an HStack equalise to the
+            // tallest sibling (only one carries a caption).
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
