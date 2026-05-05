@@ -18,6 +18,7 @@ struct SocialView: View {
     @ObservedObject var socialNav: SocialNavigationState
     @ObservedObject var history: NavigationHistoryStore
     @StateObject private var vm = SocialViewModel()
+    @State private var showsScrollTop = false
 
     let onOpenAnime: (Int) -> Void
 
@@ -82,21 +83,53 @@ struct SocialView: View {
     }
 
     private var feedView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                SocialTabBar(selected: $socialNav.selectedTab)
-                    .padding(.top, 18)
-                    .padding(.bottom, 16)
-                tabContent
-                Spacer(minLength: 48)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Anchor for the scroll-to-top button. Zero-height so it
+                    // doesn't push real content; .top in `scrollTo` lands the
+                    // viewport here.
+                    Color.clear.frame(height: 0).id(Self.feedTopAnchor)
+                    header
+                    SocialTabBar(selected: $socialNav.selectedTab)
+                        .padding(.top, 18)
+                        .padding(.bottom, 16)
+                    tabContent
+                    Spacer(minLength: 48)
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 24)
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 40)
-            .padding(.top, 24)
-            .frame(maxWidth: 820)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.contentOffset.y
+            } action: { _, newOffset in
+                let shouldShow = ScrollTopThresholds.shouldShow(
+                    previous: showsScrollTop,
+                    offset: newOffset
+                )
+                guard shouldShow != showsScrollTop else { return }
+                withAnimation(.easeOut(duration: 0.18)) {
+                    showsScrollTop = shouldShow
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if showsScrollTop {
+                    ScrollTopButton {
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            proxy.scrollTo(Self.feedTopAnchor, anchor: .top)
+                        }
+                    }
+                    .padding(.trailing, 24)
+                    .padding(.bottom, 24)
+                    .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
+                }
+            }
         }
     }
+
+    private static let feedTopAnchor = "social.feed.top"
 
     // MARK: - Header
 

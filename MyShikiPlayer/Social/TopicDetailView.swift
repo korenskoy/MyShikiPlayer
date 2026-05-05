@@ -61,6 +61,11 @@ struct TopicDetailView: View {
     /// `nil` keeps the lightbox dismissed. Single-image presentation — the
     /// lightbox renders one URL at a time, no cross-thread gallery navigation.
     @State private var lightboxImageURL: URL?
+    /// Drives the floating "scroll to top" pill. Updated from
+    /// `onScrollGeometryChange` with hysteresis (see `ScrollTopThresholds`).
+    @State private var showsScrollTop = false
+
+    fileprivate static let scrollTopAnchor = "topic.detail.top"
 
     /// Window width below which the sidebar collapses to keep the main column
     /// wide enough to host the 180pt meta column + body. Picked empirically
@@ -74,6 +79,12 @@ struct TopicDetailView: View {
                 let showSidebar = geo.size.width >= Self.sidebarBreakpoint
                 ScrollViewReader { proxy in
                     ScrollView {
+                        // Zero-height anchor at the very top of the scroll
+                        // content so `proxy.scrollTo` lands the viewport on
+                        // pixel 0 regardless of column layout.
+                        Color.clear
+                            .frame(height: 0)
+                            .id(Self.scrollTopAnchor)
                         HStack(alignment: .top, spacing: 28) {
                             mainColumn(proxy: proxy)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -92,6 +103,30 @@ struct TopicDetailView: View {
                         .padding(.bottom, 48)
                         .frame(maxWidth: 1500)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentOffset.y
+                    } action: { _, newOffset in
+                        let shouldShow = ScrollTopThresholds.shouldShow(
+                            previous: showsScrollTop,
+                            offset: newOffset
+                        )
+                        guard shouldShow != showsScrollTop else { return }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            showsScrollTop = shouldShow
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        if showsScrollTop {
+                            ScrollTopButton {
+                                withAnimation(.easeInOut(duration: 0.35)) {
+                                    proxy.scrollTo(Self.scrollTopAnchor, anchor: .top)
+                                }
+                            }
+                            .padding(.trailing, 24)
+                            .padding(.bottom, 24)
+                            .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
+                        }
                     }
                 }
             }
