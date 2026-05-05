@@ -34,6 +34,9 @@ struct CommentResolvers {
 struct FormattedBodyContext {
     var onOpenAnimeId: ((Int) -> Void)? = nil
     var onOpenCommentId: ((Int) -> Void)? = nil
+    /// When set, inline `ImageBlock`s become tappable and forward the image
+    /// URL to the host view (which presents a full-screen lightbox).
+    var onOpenImageURL: ((URL) -> Void)? = nil
     var resolvers: CommentResolvers = .empty
 }
 
@@ -68,6 +71,7 @@ struct FormattedBody: View {
         segmentSpacing: CGFloat = 10,
         onOpenAnimeId: ((Int) -> Void)? = nil,
         onOpenCommentId: ((Int) -> Void)? = nil,
+        onOpenImageURL: ((URL) -> Void)? = nil,
         commentResolvers: CommentResolvers = .empty
     ) {
         self.segments = segments
@@ -77,6 +81,7 @@ struct FormattedBody: View {
         self.installedContext = FormattedBodyContext(
             onOpenAnimeId: onOpenAnimeId,
             onOpenCommentId: onOpenCommentId,
+            onOpenImageURL: onOpenImageURL,
             resolvers: commentResolvers
         )
     }
@@ -391,19 +396,20 @@ private struct CodeBlock: View {
 }
 
 /// `<img>` and `<a class="b-image">` from `html_body` both arrive here as
-/// a resolved URL. We rely on `AsyncImage` to size by aspect (`scaledToFit`
-/// with a soft cap of 360pt height) and degrade to a chip-link when the
-/// image fails to load.
+/// a resolved URL. We fetch through `ImageCacheStore` so a successful load
+/// is memoised on disk + memory (the cache shared with avatars / posters);
+/// fall back to a chip-link when the image refuses to decode.
 private struct ImageBlock: View {
     @Environment(\.appTheme) private var theme
+    @Environment(\.formattedBodyContext) private var ctx
     let url: URL
 
+    @State private var image: NSImage?
+    @State private var didFail: Bool = false
+
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .empty:
-                placeholder(text: "Загрузка изображения…")
-            case .success(let image):
+        Group {
+            if let image {
                 // Left-align the rendered image: an HStack with a trailing
                 // Spacer keeps the image at its natural fitted size while
                 // the row consumes the remaining body width. Using
@@ -411,18 +417,40 @@ private struct ImageBlock: View {
                 // image itself would expand the *clipShape* rectangle to
                 // full body width even when the picture is portrait.
                 HStack(alignment: .top, spacing: 0) {
-                    image
+                    let rendered = Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
                         .frame(maxHeight: 360)
                         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                    if let onOpen = ctx.onOpenImageURL {
+                        rendered
+                            .contentShape(Rectangle())
+                            .onTapGesture { onOpen(url) }
+                            .help("Открыть в полном размере")
+                    } else {
+                        rendered
+                    }
                     Spacer(minLength: 0)
                 }
-            case .failure:
+            } else if didFail {
                 chip(label: "🖼  \(url.absoluteString)", url: url)
-            @unknown default:
+            } else {
                 placeholder(text: "Загрузка изображения…")
             }
+        }
+        .task(id: url) {
+            await load()
+        }
+    }
+
+    private func load() async {
+        if let loaded = await ImageCacheStore.shared.image(for: url) {
+            image = loaded
+            didFail = false
+        } else {
+            image = nil
+            didFail = true
         }
     }
 

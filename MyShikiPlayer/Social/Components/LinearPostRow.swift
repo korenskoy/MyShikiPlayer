@@ -31,6 +31,7 @@ struct LinearPostRow: View {
 
     var onOpenAnimeId: ((Int) -> Void)? = nil
     var onOpenCommentId: ((Int) -> Void)? = nil
+    var onOpenImageURL: ((URL) -> Void)? = nil
     var commentResolvers: CommentResolvers = .empty
     var onJumpToParent: ((Int) -> Void)? = nil
 
@@ -188,6 +189,7 @@ struct LinearPostRow: View {
                 lineSpacing: 4,
                 onOpenAnimeId: onOpenAnimeId,
                 onOpenCommentId: onOpenCommentId,
+                onOpenImageURL: onOpenImageURL,
                 commentResolvers: commentResolvers
             )
         } else if segments == nil {

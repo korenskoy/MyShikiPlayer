@@ -57,6 +57,10 @@ struct TopicDetailView: View {
     }
 
     @State private var highlightedCommentId: Int?
+    /// Currently lightboxed image (tapped from topic body or any comment).
+    /// `nil` keeps the lightbox dismissed. Single-image presentation — the
+    /// lightbox renders one URL at a time, no cross-thread gallery navigation.
+    @State private var lightboxImageURL: URL?
 
     /// Window width below which the sidebar collapses to keep the main column
     /// wide enough to host the 180pt meta column + body. Picked empirically
@@ -65,32 +69,45 @@ struct TopicDetailView: View {
     private static let sidebarBreakpoint: CGFloat = 1100
 
     var body: some View {
-        GeometryReader { geo in
-            let showSidebar = geo.size.width >= Self.sidebarBreakpoint
-            ScrollViewReader { proxy in
-                ScrollView {
-                    HStack(alignment: .top, spacing: 28) {
-                        mainColumn(proxy: proxy)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if showSidebar {
-                            TopicSidebar(
-                                topic: vm.topic,
-                                stats: vm.linkedAnimeStats,
-                                isLoadingStats: vm.isLoadingLinkedAnimeStats,
-                                onOpenAnime: onOpenAnime
-                            )
-                            .frame(width: 320)
+        ZStack {
+            GeometryReader { geo in
+                let showSidebar = geo.size.width >= Self.sidebarBreakpoint
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        HStack(alignment: .top, spacing: 28) {
+                            mainColumn(proxy: proxy)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if showSidebar {
+                                TopicSidebar(
+                                    topic: vm.topic,
+                                    stats: vm.linkedAnimeStats,
+                                    isLoadingStats: vm.isLoadingLinkedAnimeStats,
+                                    onOpenAnime: onOpenAnime
+                                )
+                                .frame(width: 320)
+                            }
                         }
+                        .padding(.horizontal, 40)
+                        .padding(.top, 24)
+                        .padding(.bottom, 48)
+                        .frame(maxWidth: 1500)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.horizontal, 40)
-                    .padding(.top, 24)
-                    .padding(.bottom, 48)
-                    .frame(maxWidth: 1500)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
+            .background(theme.bg)
+
+            // Single-image lightbox overlay shared by topic body and all
+            // comment rows. Tapping any inline image sets `lightboxImageURL`,
+            // which translates into the array+index API the lightbox expects.
+            ImageLightbox(
+                urls: lightboxImageURL.map { [$0] } ?? [],
+                selectedIndex: Binding(
+                    get: { lightboxImageURL == nil ? nil : 0 },
+                    set: { if $0 == nil { lightboxImageURL = nil } }
+                )
+            )
         }
-        .background(theme.bg)
         .task {
             await vm.load(configuration: configuration)
             if let topic = vm.topic, let title = topic.topicTitle, !title.isEmpty {
@@ -115,6 +132,7 @@ struct TopicDetailView: View {
                     FormattedBody(
                         segments: vm.topicSegments,
                         onOpenAnimeId: onOpenAnime,
+                        onOpenImageURL: { lightboxImageURL = $0 },
                         commentResolvers: buildTopicResolvers()
                     )
                 }
@@ -271,6 +289,7 @@ extension TopicDetailView {
                             isHighlighted: highlightedCommentId == comment.id,
                             onOpenAnimeId: onOpenAnime,
                             onOpenCommentId: { id in jumpToComment(id, proxy: proxy) },
+                            onOpenImageURL: { lightboxImageURL = $0 },
                             commentResolvers: resolvers,
                             onJumpToParent: { id in jumpToComment(id, proxy: proxy) }
                         )
