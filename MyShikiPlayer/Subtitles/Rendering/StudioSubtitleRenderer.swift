@@ -39,10 +39,19 @@ struct StudioSubtitleRenderer: NSViewRepresentable {
   }
 
   func updateNSView(_ nsView: NSView, context: Context) {
-    // Reload track content when ASS bytes change.
     let bytes = store.loadedAssBytes
-    if context.coordinator.loadedTrackID != store.selectedTrack?.id {
-      context.coordinator.loadedTrackID = store.selectedTrack?.id
+    // Marker includes (trackID, byteCount). Track ID alone is not enough:
+    // `selectTrack` flips `selectedTrack` synchronously and only assigns
+    // `loadedAssBytes` after the network awaits, so the first render after
+    // a track change typically has bytes == nil. With an id-only marker the
+    // second render (bytes present, id unchanged) was silently skipped and
+    // the studio overlay never loaded.
+    let marker = LoadedAssMarker(
+      trackID: store.selectedTrack?.id,
+      byteCount: bytes?.count ?? 0
+    )
+    if context.coordinator.loadedMarker != marker {
+      context.coordinator.loadedMarker = marker
       if let data = bytes, let content = String(data: data, encoding: .utf8) {
         context.coordinator.renderer.loadTrack(content: content)
       } else {
@@ -62,13 +71,19 @@ struct StudioSubtitleRenderer: NSViewRepresentable {
 
   // MARK: - Coordinator
 
+  struct LoadedAssMarker: Equatable {
+    let trackID: Int?
+    let byteCount: Int
+  }
+
   @MainActor
   final class Coordinator {
     let renderer: AssSubtitlesRenderer
     let subtitlesView: AssSubtitlesView
     var cancellables = Set<AnyCancellable>()
-    // Tracks which track ID has been loaded to avoid redundant loadTrack calls.
-    var loadedTrackID: Int?
+    /// (trackID, byteCount) pair last handed to libass — see updateNSView for
+    /// why a track-id-only marker isn't enough.
+    var loadedMarker: LoadedAssMarker?
 
     init() {
       let fontsURL = Bundle.main.resourceURL ?? URL(fileURLWithPath: NSTemporaryDirectory())

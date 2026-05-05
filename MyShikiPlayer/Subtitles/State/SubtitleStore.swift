@@ -151,7 +151,30 @@ final class SubtitleStore {
       loadedCues = []
       errorMessage = "Не удалось загрузить субтитры."
     }
-    loadedAssBytes = ass
+    loadedAssBytes = ass.flatMap(Self.sanitizedAssBytes)
+  }
+
+  /// Filters out anything libass can't parse before it reaches the renderer.
+  /// SwiftAssRenderer's `LibraryWrapper.readTrack` force-dereferences the
+  /// pointer returned by `ass_read_memory`, which is NULL for empty input,
+  /// non-ASS payloads (HTML error pages from CDN edges), or missing section
+  /// headers — passing such data through crashes the renderer's worker
+  /// queue. The studio overlay degrades cleanly: if bytes are nil, the
+  /// legacy VTT-based renderer keeps working.
+  private static func sanitizedAssBytes(_ data: Data) -> Data? {
+    var bytes = data
+    if bytes.starts(with: [0xEF, 0xBB, 0xBF]) {
+      bytes.removeFirst(3)
+    }
+    guard !bytes.isEmpty else { return nil }
+    guard let text = String(data: bytes, encoding: .utf8) else { return nil }
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    // ASS / SSA always carries at least one of these section headers.
+    let hasScriptInfo = trimmed.range(of: "[Script Info]", options: .caseInsensitive) != nil
+    let hasEvents = trimmed.range(of: "[Events]", options: .caseInsensitive) != nil
+    guard hasScriptInfo || hasEvents else { return nil }
+    return bytes
   }
 
   // MARK: - Cue lookup (pure)

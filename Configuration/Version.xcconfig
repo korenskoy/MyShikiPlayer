@@ -2,7 +2,7 @@
 // Included from Shikimori.xcconfig (app) and used as base for test targets.
 
 MARKETING_VERSION = 1.2.2
-CURRENT_PROJECT_VERSION = 260
+CURRENT_PROJECT_VERSION = 261
 
 // Allow per-machine signing overrides (DEVELOPMENT_TEAM, etc.) to flow into test targets too.
 #include? "Local.xcconfig"
