@@ -124,20 +124,34 @@ struct TopicDetailView: View {
     /// EntryTopics is also skipped — the title and poster already convey it.
     @ViewBuilder
     private func mainColumn(proxy: ScrollViewProxy) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
+        // Vertical rhythm is paddings, not VStack spacing, so the gap below
+        // the breadcrumbs can collapse to ~12pt for stub anime topics where
+        // no body block sits between the hero and the comments header.
+        let bodyShown: Bool = {
+            guard let topic = vm.topic else { return false }
+            return !vm.topicSegments.isEmpty && !isStubEntryTopic(topic)
+        }()
+        // Tight (12pt) only when the hero is shown without a body underneath;
+        // every other case keeps the standard 24pt rhythm.
+        let commentsTopPad: CGFloat = (vm.topic != nil && !bodyShown) ? 12 : 24
+
+        VStack(alignment: .leading, spacing: 0) {
             backLink
             if let topic = vm.topic {
                 topicHero(topic)
-                if !vm.topicSegments.isEmpty, !isStubEntryTopic(topic) {
+                    .padding(.top, 24)
+                if bodyShown {
                     FormattedBody(
                         segments: vm.topicSegments,
                         onOpenAnimeId: onOpenAnime,
                         onOpenImageURL: { lightboxImageURL = $0 },
                         commentResolvers: buildTopicResolvers()
                     )
+                    .padding(.top, 24)
                 }
             }
             commentsSection(proxy: proxy)
+                .padding(.top, commentsTopPad)
             Spacer(minLength: 48)
         }
     }
@@ -275,7 +289,7 @@ extension TopicDetailView {
                 // older history is reached without crossing the pager
                 // visually), then the decorative pageNav, then posts, then
                 // a trailing pageNav copy for symmetry.
-                loadMoreCommentsControl
+                loadMoreCommentsControl(proxy: proxy)
                 pageNav
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(vm.comments.enumerated()), id: \.element.id) { idx, comment in
@@ -331,33 +345,57 @@ extension TopicDetailView {
 
     /// Shown above the comments list (matches Shikimori's web layout where
     /// older history is reached by walking up). Mirrors the wording on the
-    /// site: "Загрузить ещё N из M комментариев".
+    /// site: "Загрузить ещё N из M комментариев". The button captures the
+    /// id of the currently-topmost comment before triggering `loadMore` and,
+    /// after the older batch is prepended, asks `proxy` to scroll back to
+    /// that id with a `.top` anchor — without the re-anchor SwiftUI keeps
+    /// the user's pixel offset and the previously-visible row jumps down by
+    /// 30 rows' worth of height. The spinner state lives inside the same
+    /// button shell with a fixed inner height so the row's vertical
+    /// footprint is identical in both states (no layout shift).
     @ViewBuilder
-    private var loadMoreCommentsControl: some View {
-        if vm.isLoadingMore {
-            HStack {
-                Spacer()
-                ProgressView().controlSize(.small)
-                Spacer()
-            }
-            .padding(.vertical, 12)
-        } else if vm.canLoadMore {
+    private func loadMoreCommentsControl(proxy: ScrollViewProxy) -> some View {
+        if vm.canLoadMore || vm.isLoadingMore {
             Button {
-                Task { await vm.loadMore(configuration: configuration) }
+                let anchorId = vm.comments.first?.id
+                Task {
+                    await vm.loadMore(configuration: configuration)
+                    guard let anchorId else { return }
+                    // Hand off one frame so the prepended rows are laid out
+                    // and registered with the scroll proxy before the
+                    // animated scroll runs. Plain `Task.yield()` stays on
+                    // the actor and doesn't wait for SwiftUI's layout pass.
+                    try? await Task.sleep(nanoseconds: 16_000_000)
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            proxy.scrollTo(anchorId, anchor: .top)
+                        }
+                    }
+                }
             } label: {
-                Text(loadMoreButtonText)
-                    .font(.dsMono(11, weight: .semibold))
-                    .tracking(1)
-                    .foregroundStyle(theme.accent)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(theme.chipBg)
-                    )
+                Group {
+                    if vm.isLoadingMore {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(theme.accent)
+                    } else {
+                        Text(loadMoreButtonText)
+                            .font(.dsMono(11, weight: .semibold))
+                            .tracking(1)
+                            .foregroundStyle(theme.accent)
+                    }
+                }
+                .frame(height: 16)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(theme.chipBg)
+                )
             }
             .buttonStyle(.plain)
+            .disabled(vm.isLoadingMore)
         }
     }
 

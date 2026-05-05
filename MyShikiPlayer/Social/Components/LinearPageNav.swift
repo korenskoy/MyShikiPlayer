@@ -31,7 +31,7 @@ struct LinearPageNav: View {
             Text("СТРАНИЦА:")
                 .tracking(1)
                 .foregroundStyle(theme.fg3)
-            ForEach(Array(pageItems.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 chip(for: item)
             }
             Spacer(minLength: 8)
@@ -57,23 +57,45 @@ struct LinearPageNav: View {
 
     // MARK: - Page items
 
-    private enum PageItem: Hashable {
+    enum PageItem: Hashable {
         case number(Int)
         case ellipsis
     }
 
-    /// Reproduces the design's pager: short threads list every page, longer
-    /// ones use a `1 · 2 · 3 · … · N-1 · N` ellipsis form.
-    private var pageItems: [PageItem] {
+    private var items: [PageItem] {
+        Self.pageItems(currentPage: currentPage, totalPages: totalPages)
+    }
+
+    /// Page-window pager: short threads list every page; longer ones keep
+    /// the first / last pages pinned and show a `current ± 1` window in the
+    /// middle so the highlighted "you are here" chip is always visible. A
+    /// gap of one is filled with the missing page rather than an ellipsis
+    /// (`[1, 2, 3, …]` instead of `[1, …, 3, …]`) to keep the layout calm.
+    /// Static + pure so it can be exercised directly from unit tests without
+    /// instantiating the SwiftUI view.
+    static func pageItems(currentPage: Int, totalPages: Int) -> [PageItem] {
         guard totalPages > 1 else { return [] }
-        if totalPages <= 6 {
+        if totalPages <= 7 {
             return (1...totalPages).map { .number($0) }
         }
-        return [
-            .number(1), .number(2), .number(3),
-            .ellipsis,
-            .number(totalPages - 1), .number(totalPages),
-        ]
+        let cur = max(1, min(currentPage, totalPages))
+        let lo = max(2, cur - 1)
+        let hi = min(totalPages - 1, cur + 1)
+
+        var items: [PageItem] = [.number(1)]
+        if lo == 3 {
+            items.append(.number(2))
+        } else if lo > 3 {
+            items.append(.ellipsis)
+        }
+        for n in lo...hi { items.append(.number(n)) }
+        if hi == totalPages - 2 {
+            items.append(.number(totalPages - 1))
+        } else if hi < totalPages - 2 {
+            items.append(.ellipsis)
+        }
+        items.append(.number(totalPages))
+        return items
     }
 
     @ViewBuilder

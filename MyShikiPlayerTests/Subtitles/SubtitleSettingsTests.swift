@@ -5,6 +5,7 @@
 
 import XCTest
 import AppKit
+import SwiftUI
 @testable import MyShikiPlayer
 
 @MainActor

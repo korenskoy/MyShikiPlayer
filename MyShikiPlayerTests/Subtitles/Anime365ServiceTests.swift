@@ -28,11 +28,11 @@ private final class StubEndpointStore: SubtitleEndpointStore {
   private let config: SubtitleEndpointConfig
 
   init(config: SubtitleEndpointConfig) {
+    self.config = config
     let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
       .appendingPathComponent(UUID().uuidString)
       .appendingPathComponent("noop.json")
     super.init(session: .shared, cacheURL: tmpURL)
-    self.config = config
   }
 
   override func endpoints() async throws -> SubtitleEndpointConfig {
