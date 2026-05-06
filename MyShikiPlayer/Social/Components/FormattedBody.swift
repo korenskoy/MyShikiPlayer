@@ -53,6 +53,11 @@ extension EnvironmentValues {
 
 struct FormattedBody: View {
     @Environment(\.appTheme) private var theme
+    /// Ambient resolvers flow through the env from the topmost
+    /// `FormattedBody` (which sets `installedContext`). Nested rebuilds inside
+    /// spoilers/quotes inherit this and forward it to the inline flow without
+    /// each block having to read the env independently.
+    @Environment(\.formattedBodyContext) private var ambientContext
     let segments: [ShikimoriText.Segment]
     let lineSpacing: CGFloat
     let segmentSpacing: CGFloat
@@ -143,9 +148,10 @@ struct FormattedBody: View {
 
     private func inlineFlow(_ raw: String, baseColor: Color) -> InlineFlow {
         InlineFlow(
-            inlines: ShikimoriText.parseInlines(raw),
+            inlines: ShikimoriText.parseInlinesCached(raw),
             accent: theme.accent,
-            baseColor: baseColor
+            baseColor: baseColor,
+            resolvers: (installedContext ?? ambientContext).resolvers
         )
     }
 
@@ -303,6 +309,7 @@ private struct QuoteBlock: View {
 /// Markdown heading: levels 1…5 map to descending font sizes/weights.
 private struct HeadingBlock: View {
     @Environment(\.appTheme) private var theme
+    @Environment(\.formattedBodyContext) private var ctx
     let level: Int
     let text: String
 
@@ -318,9 +325,10 @@ private struct HeadingBlock: View {
 
     var body: some View {
         InlineFlow(
-            inlines: ShikimoriText.parseInlines(text),
+            inlines: ShikimoriText.parseInlinesCached(text),
             accent: theme.accent,
-            baseColor: theme.fg
+            baseColor: theme.fg,
+            resolvers: ctx.resolvers
         )
         .font(headingFont)
         .foregroundStyle(theme.fg)
@@ -332,15 +340,17 @@ private struct HeadingBlock: View {
 /// covers the case with a known author separately).
 private struct MarkdownQuoteBlock: View {
     @Environment(\.appTheme) private var theme
+    @Environment(\.formattedBodyContext) private var ctx
     let text: String
     let font: Font
     let lineSpacing: CGFloat
 
     var body: some View {
         InlineFlow(
-            inlines: ShikimoriText.parseInlines(text),
+            inlines: ShikimoriText.parseInlinesCached(text),
             accent: theme.accent,
-            baseColor: theme.fg3
+            baseColor: theme.fg3,
+            resolvers: ctx.resolvers
         )
         .font(font)
         .foregroundStyle(theme.fg3)
@@ -502,6 +512,7 @@ private struct ImageBlock: View {
 /// resolve inside list items.
 private struct BulletList: View {
     @Environment(\.appTheme) private var theme
+    @Environment(\.formattedBodyContext) private var ctx
     let items: [String]
     let font: Font
     let lineSpacing: CGFloat
@@ -514,9 +525,10 @@ private struct BulletList: View {
                         .font(font)
                         .foregroundStyle(theme.accent)
                     InlineFlow(
-                        inlines: ShikimoriText.parseInlines(item),
+                        inlines: ShikimoriText.parseInlinesCached(item),
                         accent: theme.accent,
-                        baseColor: theme.fg2
+                        baseColor: theme.fg2,
+                        resolvers: ctx.resolvers
                     )
                     .font(font)
                     .foregroundStyle(theme.fg2)

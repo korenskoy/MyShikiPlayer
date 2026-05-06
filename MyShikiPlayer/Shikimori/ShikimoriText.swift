@@ -221,6 +221,36 @@ enum ShikimoriText {
         return plain.isEmpty ? [] : [.text(plain)]
     }
 
+    /// Memoised variant of `parseInlines`. The `[Inline]` AST is fully
+    /// derived from `raw`, so the result is safe to share across views and
+    /// across renders. Hot path: a topic with 100+ comments re-parsed inline
+    /// runs from `body` on every `@Published` mutation (hover, copyFeedback,
+    /// highlight) — that is what this cache eliminates.
+    static func parseInlinesCached(_ raw: String) -> [Inline] {
+        guard !raw.isEmpty else { return [] }
+        let key = raw as NSString
+        if let cached = inlineCache.object(forKey: key) {
+            return cached.value
+        }
+        let parsed = parseInlines(raw)
+        inlineCache.setObject(InlineCacheBox(value: parsed), forKey: key, cost: raw.utf8.count)
+        return parsed
+    }
+
+    /// Bounded LRU memo. ~256 entries × ≤1 KB each is the right ballpark
+    /// for one topic page; NSCache evicts under memory pressure.
+    private static let inlineCache: NSCache<NSString, InlineCacheBox> = {
+        let c = NSCache<NSString, InlineCacheBox>()
+        c.countLimit = 256
+        c.totalCostLimit = 256 * 1024
+        return c
+    }()
+
+    private final class InlineCacheBox {
+        let value: [Inline]
+        init(value: [Inline]) { self.value = value }
+    }
+
     /// Heuristic: server-rendered HTML always has at least one `<tag>` form.
     /// BBCode bodies can contain `<` / `>` characters but not that shape,
     /// so this is enough to disambiguate.

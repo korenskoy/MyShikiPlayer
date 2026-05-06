@@ -19,23 +19,28 @@ import SwiftUI
 /// via the per-token `AttributedString.link`.
 struct InlineFlow: View {
     @Environment(\.formattedBodyContext) private var ctx
-    let inlines: [ShikimoriText.Inline]
     let accent: Color
     let baseColor: Color
     /// Fixed pixel size of a smiley. Shikimori web uses 32×32; we run a bit
     /// smaller so they don't overpower 13–14pt body text but stay readable.
     let smileySize: CGFloat
+    /// Pre-tokenized runs. Stored — not computed — so a re-render of a feed
+    /// row doesn't re-walk every word/whitespace boundary on each
+    /// `@Published` tick. Resolvers are folded in at init time; if a topic
+    /// loads new replies the parent rebuilds the flow with fresh resolvers.
+    let runs: [InlineFlowRun]
 
     init(
         inlines: [ShikimoriText.Inline],
         accent: Color,
         baseColor: Color,
+        resolvers: CommentResolvers = .empty,
         smileySize: CGFloat = 22
     ) {
-        self.inlines = inlines
         self.accent = accent
         self.baseColor = baseColor
         self.smileySize = smileySize
+        self.runs = Self.makeRuns(inlines: inlines, accent: accent, resolvers: resolvers)
     }
 
     var body: some View {
@@ -58,28 +63,36 @@ struct InlineFlow: View {
         })
     }
 
-    private var runs: [InlineFlowRun] {
-        inlines.flatMap(convert)
+    private static func makeRuns(
+        inlines: [ShikimoriText.Inline],
+        accent: Color,
+        resolvers: CommentResolvers
+    ) -> [InlineFlowRun] {
+        inlines.flatMap { convert($0, accent: accent, resolvers: resolvers) }
     }
 
-    private func convert(_ inline: ShikimoriText.Inline) -> [InlineFlowRun] {
+    private static func convert(
+        _ inline: ShikimoriText.Inline,
+        accent: Color,
+        resolvers: CommentResolvers
+    ) -> [InlineFlowRun] {
         switch inline {
         case .text(let raw):
             return tokenize(AttributedString(raw))
         case .smiley(let token):
             return [.smiley(token: token)]
         case .anime(let id, let name):
-            return entityRun(kind: "anime", id: id, fallback: name)
+            return entityRun(kind: "anime", id: id, fallback: name, accent: accent)
         case .manga(let id, let name):
-            return entityRun(kind: "manga", id: id, fallback: name)
+            return entityRun(kind: "manga", id: id, fallback: name, accent: accent)
         case .ranobe(let id, let name):
-            return entityRun(kind: "ranobe", id: id, fallback: name)
+            return entityRun(kind: "ranobe", id: id, fallback: name, accent: accent)
         case .character(let id, let name):
-            return entityRun(kind: "character", id: id, fallback: name)
+            return entityRun(kind: "character", id: id, fallback: name, accent: accent)
         case .person(let id, let name):
-            return entityRun(kind: "person", id: id, fallback: name)
+            return entityRun(kind: "person", id: id, fallback: name, accent: accent)
         case .user(let id, let name):
-            return entityRun(kind: "user", id: id, fallback: name)
+            return entityRun(kind: "user", id: id, fallback: name, accent: accent)
         case .external(let url, let label):
             var part = AttributedString(label)
             part.link = url
@@ -87,9 +100,9 @@ struct InlineFlow: View {
             part.underlineStyle = .single
             return tokenize(part)
         case .commentReference(let cid, let aid):
-            return tokenize(InlineFlowAttr.commentRef(commentId: cid, authorId: aid, accent: accent, resolvers: ctx.resolvers))
+            return tokenize(InlineFlowAttr.commentRef(commentId: cid, authorId: aid, accent: accent, resolvers: resolvers))
         case .replies(let ids):
-            return tokenize(InlineFlowAttr.replies(ids: ids, accent: accent, resolvers: ctx.resolvers))
+            return tokenize(InlineFlowAttr.replies(ids: ids, accent: accent, resolvers: resolvers))
         case .styled(let text, let style):
             return tokenize(InlineFlowAttr.styled(text: text, style: style))
         case .inlineCode(let code):
@@ -103,7 +116,7 @@ struct InlineFlow: View {
     /// Entity link runs straight through the renderer — Shikimori already
     /// supplies the resolved Russian title via the `<a data-attrs="…">` JSON
     /// payload, so we don't need a separate resolver hook.
-    private func entityRun(kind: String, id: Int, fallback: String) -> [InlineFlowRun] {
+    private static func entityRun(kind: String, id: Int, fallback: String, accent: Color) -> [InlineFlowRun] {
         tokenize(InlineFlowAttr.entityLink(fallback, kind: kind, id: id, accent: accent))
     }
 
