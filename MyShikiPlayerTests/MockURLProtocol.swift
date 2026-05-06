@@ -38,3 +38,27 @@ enum MockURLSession {
         return URLSession(configuration: config)
     }
 }
+
+extension URLRequest {
+    /// Reads the POST/PATCH body from either `httpBody` (small synchronous
+    /// case) or `httpBodyStream` (URLSession converts large bodies into a
+    /// stream before they reach a URLProtocol subclass — when that happens,
+    /// `httpBody` is nil even though the body content is non-empty). Tests
+    /// asserting on JSON bodies need to read both.
+    func mshpInterceptedBody() -> Data {
+        if let body = httpBody { return body }
+        guard let stream = httpBodyStream else { return Data() }
+        var data = Data()
+        stream.open()
+        defer { stream.close() }
+        let bufferSize = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+        while stream.hasBytesAvailable {
+            let read = stream.read(buffer, maxLength: bufferSize)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data
+    }
+}

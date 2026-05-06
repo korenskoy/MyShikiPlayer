@@ -233,7 +233,7 @@ final class AnimeDetailsViewModelTests: XCTestCase {
             session: PlaybackSession(),
             kodikClient: KodikClient(),
             repository: repository,
-            urlSession: MockURLSession.make()
+            mutations: NoopUserRateMutating()
         )
     }
 
@@ -375,4 +375,55 @@ private final class StubAnimeDetailsRepository: AnimeDetailsRepository {
 private enum StubError: Error {
     case unreachable
     case notSet
+}
+
+/// Default mutation stub used by VM tests that don't exercise mutation paths.
+/// Each method traps if invoked — tests that need mutation behaviour should
+/// provide their own conforming double.
+@MainActor
+private final class NoopUserRateMutating: UserRateMutating {
+    func updateUserRate(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        rateId: Int,
+        status: String?,
+        score: Int?,
+        episodesWatched: Int?
+    ) async throws -> UserRateMutationResult {
+        XCTFail("Unexpected updateUserRate call in non-mutation test")
+        throw StubError.unreachable
+    }
+
+    func createUserRate(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        status: String,
+        score: Int?,
+        episodesWatched: Int?
+    ) async throws -> UserRateMutationResult {
+        XCTFail("Unexpected createUserRate call in non-mutation test")
+        throw StubError.unreachable
+    }
+
+    func deleteUserRate(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        rateId: Int
+    ) async throws {
+        XCTFail("Unexpected deleteUserRate call in non-mutation test")
+        throw StubError.unreachable
+    }
+
+    func toggleFavorite(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        currentlyFavorite: Bool
+    ) async throws -> Bool {
+        XCTFail("Unexpected toggleFavorite call in non-mutation test")
+        throw StubError.unreachable
+    }
 }
