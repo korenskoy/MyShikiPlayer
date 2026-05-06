@@ -40,7 +40,8 @@ struct AppShellView: View {
                     isDetailVisible: searchOpenedDetailId != nil,
                     onGoBack: { applyHistoryStep(history.goBack()) },
                     onGoForward: { applyHistoryStep(history.goForward()) },
-                    onOpenSearch: { isSearchPresented = true }
+                    onOpenSearch: { isSearchPresented = true },
+                    onSelectBranch: { branch in selectBranchFromTopBar(branch) }
                 )
                 // Per the reference (screens-detail.jsx) — TopBar stays visible
                 // and the detail screen goes BELOW the header. No overlay.
@@ -145,6 +146,17 @@ struct AppShellView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             searchOpenedDetailId = nil
         }
+    }
+
+    /// Top-bar nav-tap handler. Always exits the detail overlay first — when
+    /// the tapped branch equals the current one SwiftUI skips
+    /// `.onChange(selectedBranch)`, so without this the detail page stays
+    /// stuck on top of e.g. the Social tab and the tab button looks dead.
+    private func selectBranchFromTopBar(_ branch: NavigationState.Branch) {
+        if searchOpenedDetailId != nil {
+            searchOpenedDetailId = nil
+        }
+        navigation.selectedBranch = branch
     }
 
     /// On launch we either seed an empty stack or restore the current tab

@@ -22,6 +22,11 @@ struct AppTopBar: View {
     var onGoBack: () -> Void = {}
     var onGoForward: () -> Void = {}
     var onOpenSearch: () -> Void = {}
+    /// Tapping a nav tab must always reset deep state (open detail / sub-screen),
+    /// even when the chosen branch equals the current one — otherwise SwiftUI
+    /// skips `.onChange(selectedBranch)` and the user gets stuck on the detail
+    /// page with no way out via the top bar.
+    var onSelectBranch: (NavigationState.Branch) -> Void = { _ in }
 
     var body: some View {
         HStack(alignment: .center, spacing: 20) {
@@ -66,7 +71,7 @@ struct AppTopBar: View {
     private func navButton(for branch: NavigationState.Branch) -> some View {
         let isActive = navigation.selectedBranch == branch && !isDetailVisible
         return Button {
-            navigation.selectedBranch = branch
+            onSelectBranch(branch)
         } label: {
             HStack(spacing: 7) {
                 if let icon = DSIconName(rawValue: branch.iconName) {
@@ -140,7 +145,7 @@ struct AppTopBar: View {
     private var avatarButton: some View {
         let isActive = navigation.selectedBranch == .profile && !isDetailVisible
         return Button {
-            navigation.selectedBranch = .profile
+            onSelectBranch(.profile)
         } label: {
             avatarCircle
                 .overlay(
