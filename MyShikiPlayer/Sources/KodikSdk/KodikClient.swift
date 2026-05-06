@@ -23,7 +23,10 @@ struct KodikClient {
 
     func loadCatalog(shikimoriId: Int, token: String) async throws -> [KodikCatalogEntry] {
         await log("catalog_start shikimori_id=\(shikimoriId) token_present=true token_len=\(token.count)")
-        var comps = URLComponents(string: "\(configuration.scheme)://\(configuration.apiHost)/search")!
+        guard var comps = URLComponents(string: "\(configuration.scheme)://\(configuration.apiHost)/search") else {
+            await log("catalog_fail reason=invalid_search_url_components")
+            throw KodikSourceError.parse("invalid kodik search URL components")
+        }
         comps.queryItems = [
             URLQueryItem(name: "token", value: token),
             URLQueryItem(name: "shikimori_id", value: String(shikimoriId)),
@@ -139,9 +142,10 @@ struct KodikClient {
         return map[seasonKey]
     }
 
+    /// Stays `async` so existing `await log(...)` callsites compile unchanged.
+    /// `logUIEvent` is now nonisolated and self-gates on `isEnabled`, so no
+    /// MainActor hop is paid when diagnostics are off.
     private func log(_ message: String) async {
-        await MainActor.run {
-            NetworkLogStore.shared.logUIEvent("kodik_client \(message)")
-        }
+        NetworkLogStore.shared.logUIEvent("kodik_client \(message)")
     }
 }

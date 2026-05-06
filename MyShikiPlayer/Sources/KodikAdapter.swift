@@ -204,9 +204,7 @@ struct KodikAdapter: SourceAdapter {
     }
 
     private func log(_ message: String) async {
-        await MainActor.run {
-            NetworkLogStore.shared.logUIEvent("kodik_adapter \(message)")
-        }
+        NetworkLogStore.shared.logUIEvent("kodik_adapter \(message)")
     }
 
     /// Single bridge between the SDK-level `KodikSourceError` taxonomy and the

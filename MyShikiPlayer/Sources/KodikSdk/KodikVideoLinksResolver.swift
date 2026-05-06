@@ -14,6 +14,28 @@ struct KodikVideoLinksResolver {
         let endingRangeSeconds: ClosedRange<Double>?
     }
 
+    /// Compiled regexes are reused across resolve calls — `NSRegularExpression`
+    /// init is non-trivial and the resolver gets invoked once per episode +
+    /// once per studio switch.
+    private enum Regex {
+        static let playerSingleJS: NSRegularExpression? = try? NSRegularExpression(
+            pattern: #"src="(?<link>/assets/js/app\.player_single\.[a-z0-9]+\.js)""#,
+            options: [.caseInsensitive]
+        )
+        static let videoInfoEndpointB64: NSRegularExpression? = try? NSRegularExpression(
+            pattern: #"type:"POST",url:atob\("(?<b64str>[^"]+)"\)"#,
+            options: [.caseInsensitive]
+        )
+        static let parseSkipButtons: NSRegularExpression? = try? NSRegularExpression(
+            pattern: #"parseSkipButtons?\("(?<data>[^"]+)"\s*,\s*"(?<type>[^"]+)"\)"#,
+            options: [.caseInsensitive]
+        )
+        static let kodikLink: NSRegularExpression? = try? NSRegularExpression(
+            pattern: #"^(?:https?:)?\/\/(?<host>[a-z0-9\.-]+\.[a-z]+)\/(?<type>[a-z]+)\/(?<id>\d+)\/(?<hash>[0-9a-z]+)\/(?<quality>\d+p)(?:.*)$"#,
+            options: [.caseInsensitive]
+        )
+    }
+
     let session: URLSession
     /// User-overridable Kodik hosts. Read once per resolver instance — and
     /// because resolvers are short-lived (one per resolve flow), each new
@@ -42,7 +64,7 @@ struct KodikVideoLinksResolver {
         await log("resolve_page_response bytes=\(page.utf8.count) preview=\(preview(page, max: 260))")
         let hasSkipMarker = page.contains("parseSkipButton(") || page.contains("parseSkipButtons(")
         await log("resolve_page_skip_marker present=\(hasSkipMarker)")
-        let skipRanges = parseSkipRanges(from: page)
+        let skipRanges = Self.parseSkipRanges(from: page)
         let openingRange = skipRanges.opening
         let endingRange = skipRanges.ending
         if let openingRange {
@@ -55,13 +77,13 @@ struct KodikVideoLinksResolver {
         } else {
             await log("resolve_ending_range none")
         }
-        let playerSinglePath = firstMatch(in: page, pattern: #"src="(?<link>/assets/js/app\.player_single\.[a-z0-9]+\.js)""#, group: "link")
+        let playerSinglePath = firstMatch(in: page, regex: Regex.playerSingleJS, group: "link")
 
         var videoInfoEndpoint = "/ftor"
         if let playerSinglePath {
             await log("resolve_player_js path=\(playerSinglePath)")
             let js = try await fetchText("https://\(parsed.host)\(playerSinglePath)")
-            if let endpointB64 = firstMatch(in: js, pattern: #"type:"POST",url:atob\("(?<b64str>[^"]+)"\)"#, group: "b64str"),
+            if let endpointB64 = firstMatch(in: js, regex: Regex.videoInfoEndpointB64, group: "b64str"),
                let endpointData = Data(base64Encoded: endpointB64),
                let endpoint = String(data: endpointData, encoding: .utf8),
                endpoint.first == "/" {
@@ -130,7 +152,10 @@ struct KodikVideoLinksResolver {
         endpoint: String,
         referer: String
     ) async throws -> [String: Any] {
-        var comps = URLComponents(string: "https://\(parsed.host)\(endpoint)")!
+        guard var comps = URLComponents(string: "https://\(parsed.host)\(endpoint)") else {
+            await log("resolve_fail reason=invalid_video_info_components")
+            throw KodikSourceError.parse("invalid video info URL components")
+        }
         comps.queryItems = [
             URLQueryItem(name: "type", value: parsed.type),
             URLQueryItem(name: "id", value: parsed.id),
@@ -269,12 +294,12 @@ struct KodikVideoLinksResolver {
     /// episode — so it is classified as the ending. This restores the
     /// historical behaviour for shows that only mark the ending.
     /// Pairs with `start >= end` are dropped as invalid.
-    private func parseSkipRanges(
+    static func parseSkipRanges(
         from page: String
     ) -> (opening: ClosedRange<Double>?, ending: ClosedRange<Double>?) {
-        guard let data = firstMatch(
+        guard let data = staticFirstMatch(
             in: page,
-            pattern: #"parseSkipButtons?\("(?<data>[^"]+)"\s*,\s*"(?<type>[^"]+)"\)"#,
+            regex: Regex.parseSkipButtons,
             group: "data"
         ) else {
             return (nil, nil)
@@ -299,7 +324,7 @@ struct KodikVideoLinksResolver {
         guard let only = parsed.first else {
             return (nil, nil)
         }
-        if only.lowerBound >= Self.singleRangeOpeningCutoffSeconds {
+        if only.lowerBound >= singleRangeOpeningCutoffSeconds {
             return (nil, only)
         }
         return (only, nil)
@@ -310,7 +335,7 @@ struct KodikVideoLinksResolver {
     /// payload starting later than this cutoff is therefore an ending.
     private static let singleRangeOpeningCutoffSeconds: Double = 300
 
-    private func parseTimeToken(_ value: String) -> Double? {
+    static func parseTimeToken(_ value: String) -> Double? {
         let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else { return nil }
 
@@ -350,10 +375,9 @@ struct KodikVideoLinksResolver {
 
     private func parseKodikLink(_ link: String) throws -> ParsedKodikLink {
         let normalized = normalizeKodikLink(link)
-        let regex = try NSRegularExpression(
-            pattern: #"^(?:https?:)?\/\/(?<host>[a-z0-9\.-]+\.[a-z]+)\/(?<type>[a-z]+)\/(?<id>\d+)\/(?<hash>[0-9a-z]+)\/(?<quality>\d+p)(?:.*)$"#,
-            options: [.caseInsensitive]
-        )
+        guard let regex = Regex.kodikLink else {
+            throw KodikSourceError.parse("invalid kodik player link")
+        }
         let ns = normalized as NSString
         guard let m = regex.firstMatch(in: normalized, range: NSRange(location: 0, length: ns.length)) else {
             throw KodikSourceError.parse("invalid kodik player link")
@@ -410,10 +434,12 @@ struct KodikVideoLinksResolver {
         return request
     }
 
-    private func firstMatch(in text: String, pattern: String, group: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
+    private func firstMatch(in text: String, regex: NSRegularExpression?, group: String) -> String? {
+        Self.staticFirstMatch(in: text, regex: regex, group: group)
+    }
+
+    static func staticFirstMatch(in text: String, regex: NSRegularExpression?, group: String) -> String? {
+        guard let regex else { return nil }
         let ns = text as NSString
         guard let m = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else {
             return nil
@@ -445,9 +471,7 @@ struct KodikVideoLinksResolver {
     }
 
     private func log(_ message: String) async {
-        await MainActor.run {
-            NetworkLogStore.shared.logUIEvent("kodik_resolver \(message)")
-        }
+        NetworkLogStore.shared.logUIEvent("kodik_resolver \(message)")
     }
 
     private func preview(_ text: String, max: Int) -> String {
