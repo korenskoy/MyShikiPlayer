@@ -39,10 +39,9 @@ final class AnimeDetailsViewModel: ObservableObject {
     let session: PlaybackSession
     private let configuration: ShikimoriConfiguration
     private let currentUserId: Int?
-    private let restClient: ShikimoriRESTClient
-    private let graphqlClient: ShikimoriGraphQLClient
     private let kodikClient: KodikClient
     private let repository: AnimeDetailsRepository
+    private let mutations: UserRateMutating
 
     /// Cross-title "remember last studio" memory + preferred-translation
     /// resolver lives here (Phase 4 split — keeps the picker rule in one place).
@@ -55,16 +54,15 @@ final class AnimeDetailsViewModel: ObservableObject {
         session: PlaybackSession? = nil,
         kodikClient: KodikClient = .init(),
         repository: AnimeDetailsRepository = AnimeDetailRepo.shared,
-        urlSession: URLSession = .shared
+        mutations: UserRateMutating = UserRateMutationService.shared
     ) {
         self.shikimoriId = shikimoriId
         self.configuration = configuration
         self.currentUserId = currentUserId
         self.session = session ?? PlaybackSession()
-        self.restClient = ShikimoriRESTClient(configuration: configuration, session: urlSession)
-        self.graphqlClient = ShikimoriGraphQLClient(configuration: configuration, session: urlSession)
         self.kodikClient = kodikClient
         self.repository = repository
+        self.mutations = mutations
     }
 
     // MARK: - Derived
@@ -226,69 +224,60 @@ final class AnimeDetailsViewModel: ObservableObject {
         guard let userId = currentUserId else { return }
         do {
             if let rateId = userRateId {
-                // status == nil here means "remove from list" — PATCH with a
-                // nil status is a no-op on the server (missing key keeps the
-                // old value), so we DELETE the user_rate instead.
+                // Convention: status == nil from setStatus(nil) means "remove
+                // from list". A bare PATCH with status absent would preserve
+                // the existing status server-side, so we DELETE explicitly.
                 if status == nil {
-                    try await restClient.deleteUserRate(id: rateId)
-                    userRateId = nil
-                    userStatus = nil
-                    userScore = nil
-                    userEpisodesWatched = 0
-                    CacheEvents.postUserRateRemoved(animeId: shikimoriId, userId: userId)
+                    try await mutations.deleteUserRate(
+                        configuration: configuration,
+                        animeId: shikimoriId,
+                        userId: userId,
+                        rateId: rateId
+                    )
+                    apply(mutationResult: nil)
                     return
                 }
-                // Update
-                let body = UserRateV2UpdateBody(userRate: .init(
-                    chapters: nil, episodes: nil, volumes: nil, rewatches: nil,
-                    score: score.map(String.init), status: status, text: nil
-                ))
-                let updated = try await restClient.updateUserRate(id: rateId, body: body)
-                userStatus = updated.status
-                userScore = updated.score
-                userEpisodesWatched = updated.episodes
-            } else {
-                // Create
-                guard let status else { return }
-                let body = UserRateV2CreateBody(userRate: .init(
-                    userId: String(userId),
-                    targetId: String(shikimoriId),
-                    targetType: "Anime",
+                let result = try await mutations.updateUserRate(
+                    configuration: configuration,
+                    animeId: shikimoriId,
+                    userId: userId,
+                    rateId: rateId,
                     status: status,
-                    score: score.map(String.init),
-                    chapters: nil, episodes: nil, volumes: nil, rewatches: nil, text: nil
-                ))
-                let created = try await restClient.createUserRate(body)
-                userRateId = created.id
-                userStatus = created.status
-                userScore = created.score
-                userEpisodesWatched = created.episodes
+                    score: score,
+                    episodesWatched: nil
+                )
+                apply(mutationResult: result)
+            } else {
+                guard let status else { return }
+                let result = try await mutations.createUserRate(
+                    configuration: configuration,
+                    animeId: shikimoriId,
+                    userId: userId,
+                    status: status,
+                    score: score,
+                    episodesWatched: nil
+                )
+                apply(mutationResult: result)
             }
-            // The title data now contains the updated userRate — post the event;
-            // subscribed repos (AnimeDetail / Home / Profile) will clear their caches.
-            // Library uses the payload to update its row in-place without a refetch.
-            postUserRateChangedEvent(userId: userId)
         } catch {
             NetworkLogStore.shared.logAppError("details_user_rate_mutation_failed \(error.localizedDescription)")
         }
     }
 
-    /// Builds a `UserRatePayload` snapshot from current view state and posts
-    /// `.cacheUserRateDidChange`. Payload is omitted (nil) only if `userRateId`
-    /// or `userStatus` is missing, which shouldn't happen on the success path
-    /// since both branches above populate them.
-    private func postUserRateChangedEvent(userId: Int) {
-        let payload: CacheEvents.UserRatePayload? = {
-            guard let rateId = userRateId, let status = userStatus else { return nil }
-            return CacheEvents.UserRatePayload(
-                rateId: rateId,
-                status: status,
-                score: userScore ?? 0,
-                episodes: userEpisodesWatched,
-                updatedAt: nil
-            )
-        }()
-        CacheEvents.postUserRateChanged(animeId: shikimoriId, userId: userId, payload: payload)
+    /// Mirrors a `UserRateMutationResult` (or its absence on delete) into
+    /// the published view state. `nil` means the rate was removed.
+    private func apply(mutationResult result: UserRateMutationResult?) {
+        if let result {
+            userRateId = result.rateId
+            userStatus = result.status
+            userScore = result.score
+            userEpisodesWatched = result.episodesWatched
+        } else {
+            userRateId = nil
+            userStatus = nil
+            userScore = nil
+            userEpisodesWatched = 0
+        }
     }
 
     /// Marks an episode as watched in user_rate. Never decreases the counter
@@ -304,43 +293,36 @@ final class AnimeDetailsViewModel: ObservableObject {
         guard target > userEpisodesWatched else { return }
         let totalEpisodes = detail?.episodeCountForPickerFallback ?? 0
         let reachesFinal = totalEpisodes > 0 && target >= totalEpisodes
-        let nextStatus: String? = reachesFinal && userStatus != "completed" ? "completed" : nil
+        // Auto-flip to `completed` when the watched episode reaches the
+        // title's last; otherwise keep the existing status by passing nil
+        // (PATCH preserves missing fields server-side).
+        let updateStatus: String? = reachesFinal && userStatus != "completed" ? "completed" : nil
         do {
             if let rateId = userRateId {
-                let body = UserRateV2UpdateBody(userRate: .init(
-                    chapters: nil,
-                    episodes: String(target),
-                    volumes: nil,
-                    rewatches: nil,
+                let result = try await mutations.updateUserRate(
+                    configuration: configuration,
+                    animeId: shikimoriId,
+                    userId: userId,
+                    rateId: rateId,
+                    status: updateStatus,
                     score: nil,
-                    status: nextStatus,
-                    text: nil
-                ))
-                let updated = try await restClient.updateUserRate(id: rateId, body: body)
-                userEpisodesWatched = updated.episodes
-                userStatus = updated.status
+                    episodesWatched: target
+                )
+                apply(mutationResult: result)
             } else {
-                let body = UserRateV2CreateBody(userRate: .init(
-                    userId: String(userId),
-                    targetId: String(shikimoriId),
-                    targetType: "Anime",
-                    status: nextStatus ?? "watching",
+                let result = try await mutations.createUserRate(
+                    configuration: configuration,
+                    animeId: shikimoriId,
+                    userId: userId,
+                    status: updateStatus ?? "watching",
                     score: nil,
-                    chapters: nil,
-                    episodes: String(target),
-                    volumes: nil,
-                    rewatches: nil,
-                    text: nil
-                ))
-                let created = try await restClient.createUserRate(body)
-                userRateId = created.id
-                userStatus = created.status
-                userEpisodesWatched = created.episodes
+                    episodesWatched: target
+                )
+                apply(mutationResult: result)
             }
-            postUserRateChangedEvent(userId: userId)
             NetworkLogStore.shared.logUIEvent(
                 "details_episode_synced shikimori_id=\(shikimoriId) episodes=\(target) " +
-                "auto_completed=\(reachesFinal && nextStatus == "completed")"
+                "auto_completed=\(reachesFinal && updateStatus == "completed")"
             )
         } catch {
             NetworkLogStore.shared.logAppError(
@@ -352,20 +334,16 @@ final class AnimeDetailsViewModel: ObservableObject {
     // MARK: - Favorites
 
     func toggleFavorite() async {
-        let desired = !isFavorite
+        guard let userId = currentUserId else { return }
         isUpdatingFavorite = true
         defer { isUpdatingFavorite = false }
         do {
-            if desired {
-                try await restClient.addFavorite(animeId: shikimoriId)
-            } else {
-                try await restClient.removeFavorite(animeId: shikimoriId)
-            }
-            isFavorite = desired
-            // detail.favoured + Profile.favourites list changed.
-            if let userId = currentUserId {
-                CacheEvents.postFavoriteToggled(animeId: shikimoriId, userId: userId)
-            }
+            isFavorite = try await mutations.toggleFavorite(
+                configuration: configuration,
+                animeId: shikimoriId,
+                userId: userId,
+                currentlyFavorite: isFavorite
+            )
         } catch {
             NetworkLogStore.shared.logAppError("details_favorite_toggle_failed \(error.localizedDescription)")
         }
