@@ -49,26 +49,24 @@ final class ShikimoriGraphQLClient: Sendable {
         self.graphqlURL = configuration.apiBaseURL.appendingPathComponent("api/graphql")
     }
 
-    private static var gqlDecoder: JSONDecoder {
+    private static let gqlDecoder: JSONDecoder = {
         let d = ShikimoriJSON.decoder()
         d.keyDecodingStrategy = .useDefaultKeys
         return d
-    }
+    }()
 
-    private static var gqlEncoder: JSONEncoder {
+    private static let gqlEncoder: JSONEncoder = {
         let e = JSONEncoder()
         e.keyEncodingStrategy = .useDefaultKeys
         return e
-    }
+    }()
 
     func animes(search: String, limit: Int, kind: String? = nil) async throws -> [GraphQLAnimeSummary] {
         let vars = AnimesSearchVariables(search: search, limit: limit, kind: kind)
         let body = GraphQLRequestBody(query: ShikimoriGraphQLQueries.animesSearch, variables: vars)
         let payload = try Self.gqlEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        guard (200..<300).contains(httpResp.statusCode) else {
-            throw ShikimoriAPIError.httpStatus(code: httpResp.statusCode, body: data.isEmpty ? nil : data)
-        }
+        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
         let envelope: GraphQLAnimesEnvelope
         do {
             envelope = try Self.gqlDecoder.decode(GraphQLAnimesEnvelope.self, from: data)
@@ -91,9 +89,7 @@ final class ShikimoriGraphQLClient: Sendable {
         let body = GraphQLRequestBody(query: ShikimoriGraphQLQueries.animesByIds, variables: vars)
         let payload = try Self.gqlEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        guard (200..<300).contains(httpResp.statusCode) else {
-            throw ShikimoriAPIError.httpStatus(code: httpResp.statusCode, body: data.isEmpty ? nil : data)
-        }
+        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
         let envelope: GraphQLAnimesEnvelope
         do {
             envelope = try Self.gqlDecoder.decode(GraphQLAnimesEnvelope.self, from: data)
@@ -113,9 +109,7 @@ final class ShikimoriGraphQLClient: Sendable {
         let body = GraphQLRequestBody(query: ShikimoriGraphQLQueries.animeStats, variables: vars)
         let payload = try Self.gqlEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        guard (200..<300).contains(httpResp.statusCode) else {
-            throw ShikimoriAPIError.httpStatus(code: httpResp.statusCode, body: data.isEmpty ? nil : data)
-        }
+        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
         let envelope: GraphQLAnimeStatsEnvelope
         do {
             envelope = try Self.gqlDecoder.decode(GraphQLAnimeStatsEnvelope.self, from: data)
@@ -192,9 +186,7 @@ final class ShikimoriGraphQLClient: Sendable {
         let body = GraphQLRequestBodyNoVariables(query: query)
         let payload = try Self.gqlEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        guard (200..<300).contains(httpResp.statusCode) else {
-            throw ShikimoriAPIError.httpStatus(code: httpResp.statusCode, body: data.isEmpty ? nil : data)
-        }
+        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
         let jsonObject: Any
         do {
             jsonObject = try JSONSerialization.jsonObject(with: data)
@@ -328,9 +320,7 @@ final class ShikimoriGraphQLClient: Sendable {
         let body = GraphQLRequestBodyNoVariables(query: query)
         let payload = try Self.gqlEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        guard (200..<300).contains(httpResp.statusCode) else {
-            throw ShikimoriAPIError.httpStatus(code: httpResp.statusCode, body: data.isEmpty ? nil : data)
-        }
+        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
         let envelope: GraphQLEnumIntrospectionEnvelope
         do {
             envelope = try Self.gqlDecoder.decode(GraphQLEnumIntrospectionEnvelope.self, from: data)
@@ -402,9 +392,7 @@ final class ShikimoriGraphQLClient: Sendable {
         ]
         let payload = try JSONSerialization.data(withJSONObject: body)
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        guard (200..<300).contains(httpResp.statusCode) else {
-            throw ShikimoriAPIError.httpStatus(code: httpResp.statusCode, body: data.isEmpty ? nil : data)
-        }
+        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
         let envelope: GraphQLDynamicAnimesEnvelope
         do {
             envelope = try Self.gqlDecoder.decode(GraphQLDynamicAnimesEnvelope.self, from: data)

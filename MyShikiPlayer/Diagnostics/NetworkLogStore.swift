@@ -23,7 +23,9 @@ final class NetworkLogStore: ObservableObject {
     /// the toggle in Settings → Diagnostics; default `false` so the buffer
     /// stays empty and `previewFromResponseData` skips JSON parsing for the
     /// vast majority of users who never open the panel.
-    static var isEnabled: Bool {
+    /// Nonisolated so the gate can be checked off-actor — `UserDefaults` is
+    /// thread-safe for read access.
+    nonisolated static var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: "settings.networkLogsEnabled")
     }
 
@@ -37,7 +39,12 @@ final class NetworkLogStore: ObservableObject {
         self.timeFormatter = formatter
     }
 
-    func log(
+    /// Nonisolated entry point for the HTTP path. The original API was
+    /// `@MainActor`, which forced every callsite (HTTP client, repositories,
+    /// Kodik adapter) to wrap the call in `await MainActor.run { ... }` even
+    /// when `isEnabled` was false — and that gate is true for >99% of users.
+    /// The hop alone was the bottleneck, not the work it was doing.
+    nonisolated func log(
         method: String,
         url: URL?,
         statusCode: Int?,
@@ -53,9 +60,11 @@ final class NetworkLogStore: ObservableObject {
         let urlText = url?.absoluteString ?? "<no-url>"
         let errorPart = errorDescription.map { " \($0)" } ?? ""
         let previewPart = responsePreview.map { " body=\($0)" } ?? ""
-        let line = "\(timeFormatter.string(from: Date())) \(method) \(statusPart) \(ms)ms \(size) \(urlText)\(errorPart)\(previewPart)"
-
-        append(line)
+        // Build the line off-actor; only the append hops to main.
+        let line = "\(method) \(statusPart) \(ms)ms \(size) \(urlText)\(errorPart)\(previewPart)"
+        Task { @MainActor [weak self] in
+            self?.appendStamped(line)
+        }
     }
 
     func clear() {
@@ -66,29 +75,36 @@ final class NetworkLogStore: ObservableObject {
         entries.map(\.line).joined(separator: "\n")
     }
 
-    func logOAuthEvent(_ message: String) {
+    nonisolated func logOAuthEvent(_ message: String) {
         guard Self.isEnabled else { return }
-        append("\(timeFormatter.string(from: Date())) OAUTH \(message)")
+        Task { @MainActor [weak self] in
+            self?.appendStamped("OAUTH \(message)")
+        }
     }
 
-    func logAppError(_ message: String) {
+    nonisolated func logAppError(_ message: String) {
         guard Self.isEnabled else { return }
-        append("\(timeFormatter.string(from: Date())) APP_ERROR \(message)")
+        Task { @MainActor [weak self] in
+            self?.appendStamped("APP_ERROR \(message)")
+        }
     }
 
-    func logUIEvent(_ message: String) {
+    nonisolated func logUIEvent(_ message: String) {
         guard Self.isEnabled else { return }
-        append("\(timeFormatter.string(from: Date())) UI \(message)")
+        Task { @MainActor [weak self] in
+            self?.appendStamped("UI \(message)")
+        }
     }
 
-    private func append(_ line: String) {
+    private func appendStamped(_ message: String) {
+        let line = "\(timeFormatter.string(from: Date())) \(message)"
         entries.append(Entry(timestamp: Date(), line: line))
         if entries.count > maxEntries {
             entries.removeFirst(entries.count - maxEntries)
         }
     }
 
-    static func maskedURLString(_ url: URL) -> String {
+    nonisolated static func maskedURLString(_ url: URL) -> String {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             return url.absoluteString
         }
@@ -100,7 +116,7 @@ final class NetworkLogStore: ObservableObject {
         return components.string ?? url.absoluteString
     }
 
-    static func previewFromResponseData(_ data: Data, maxBytes: Int) -> String {
+    nonisolated static func previewFromResponseData(_ data: Data, maxBytes: Int) -> String {
         // Hottest path on every successful network response: JSON parse +
         // sanitize for an entry that nobody will read when logs are off.
         guard isEnabled else { return "" }
@@ -129,7 +145,7 @@ final class NetworkLogStore: ObservableObject {
         return "<\(prefixData.count) bytes binary>"
     }
 
-    private static func sanitizeJSONObject(_ object: Any) -> Any? {
+    nonisolated private static func sanitizeJSONObject(_ object: Any) -> Any? {
         let sensitive = Set(["access_token", "refresh_token", "client_secret", "token", "code"])
 
         if let dict = object as? [String: Any] {

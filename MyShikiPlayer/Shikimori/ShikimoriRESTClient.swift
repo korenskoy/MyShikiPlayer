@@ -14,22 +14,26 @@ final class ShikimoriRESTClient: Sendable {
         self.apiBase = configuration.apiBaseURL
     }
 
-    private static var restDecoder: JSONDecoder {
+    private static let restDecoder: JSONDecoder = {
         let d = ShikimoriJSON.decoder()
         d.keyDecodingStrategy = .convertFromSnakeCase
         return d
-    }
+    }()
 
-    private static var userRateEncoder: JSONEncoder {
+    private static let referenceDecoder: JSONDecoder = ShikimoriJSON.decoder()
+
+    private static let userRateEncoder: JSONEncoder = {
         let e = JSONEncoder()
         e.keyEncodingStrategy = .convertToSnakeCase
         return e
-    }
+    }()
 
     // MARK: - v1
 
     func animes(query: AnimeListQuery = AnimeListQuery()) async throws -> [AnimeListItem] {
-        var c = URLComponents(url: apiBase.appendingPathComponent("api/animes"), resolvingAgainstBaseURL: false)!
+        guard var c = URLComponents(url: apiBase.appendingPathComponent("api/animes"), resolvingAgainstBaseURL: false) else {
+            throw ShikimoriAPIError.invalidURL
+        }
         let items = query.queryItems()
         if !items.isEmpty { c.queryItems = items }
         guard let url = c.url else { throw ShikimoriAPIError.invalidURL }
@@ -125,7 +129,9 @@ final class ShikimoriRESTClient: Sendable {
         limit: Int = 20,
         page: Int = 1
     ) async throws -> [UserHistoryEntry] {
-        var c = URLComponents(url: apiBase.appendingPathComponent("api/users/\(id)/history"), resolvingAgainstBaseURL: false)!
+        guard var c = URLComponents(url: apiBase.appendingPathComponent("api/users/\(id)/history"), resolvingAgainstBaseURL: false) else {
+            throw ShikimoriAPIError.invalidURL
+        }
         var items: [URLQueryItem] = [
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "page", value: String(page)),
@@ -148,7 +154,9 @@ final class ShikimoriRESTClient: Sendable {
     /// Without an explicit `limit`, Shikimori returns only one record, so we
     /// always pass it. 100 is the API's per-page maximum.
     func userFriends(id: Int, limit: Int = 100) async throws -> [UserFriend] {
-        var c = URLComponents(url: apiBase.appendingPathComponent("api/users/\(id)/friends"), resolvingAgainstBaseURL: false)!
+        guard var c = URLComponents(url: apiBase.appendingPathComponent("api/users/\(id)/friends"), resolvingAgainstBaseURL: false) else {
+            throw ShikimoriAPIError.invalidURL
+        }
         c.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
         guard let url = c.url else { throw ShikimoriAPIError.invalidURL }
         let (data, httpResp) = try await http.jsonRequest(url: url, method: "GET")
@@ -178,7 +186,9 @@ final class ShikimoriRESTClient: Sendable {
     /// (anime + manga). Empty parameters are dropped, since Shikimori sometimes
     /// fails on empty values.
     func topics(forum: String? = "animanga", limit: Int = 30, page: Int = 1) async throws -> [Topic] {
-        var c = URLComponents(url: apiBase.appendingPathComponent("api/topics"), resolvingAgainstBaseURL: false)!
+        guard var c = URLComponents(url: apiBase.appendingPathComponent("api/topics"), resolvingAgainstBaseURL: false) else {
+            throw ShikimoriAPIError.invalidURL
+        }
         var items: [URLQueryItem] = [
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "page", value: String(page)),
@@ -217,7 +227,9 @@ final class ShikimoriRESTClient: Sendable {
         limit: Int = 30,
         page: Int = 1
     ) async throws -> [TopicComment] {
-        var c = URLComponents(url: apiBase.appendingPathComponent("api/comments"), resolvingAgainstBaseURL: false)!
+        guard var c = URLComponents(url: apiBase.appendingPathComponent("api/comments"), resolvingAgainstBaseURL: false) else {
+            throw ShikimoriAPIError.invalidURL
+        }
         c.queryItems = [
             URLQueryItem(name: "commentable_type", value: commentableType),
             URLQueryItem(name: "commentable_id", value: String(commentableId)),
@@ -252,8 +264,7 @@ final class ShikimoriRESTClient: Sendable {
         let (data, httpResp) = try await http.jsonRequest(url: url, method: "GET")
         try Self.throwIfNeeded(httpResp, data: data)
         do {
-            let decoder = ShikimoriJSON.decoder()
-            return try decoder.decode([Genre].self, from: data)
+            return try Self.referenceDecoder.decode([Genre].self, from: data)
         } catch {
             throw ShikimoriAPIError.decoding(underlying: error, body: data)
         }
@@ -264,8 +275,7 @@ final class ShikimoriRESTClient: Sendable {
         let (data, httpResp) = try await http.jsonRequest(url: url, method: "GET")
         try Self.throwIfNeeded(httpResp, data: data)
         do {
-            let decoder = ShikimoriJSON.decoder()
-            return try decoder.decode([Studio].self, from: data)
+            return try Self.referenceDecoder.decode([Studio].self, from: data)
         } catch {
             throw ShikimoriAPIError.decoding(underlying: error, body: data)
         }
@@ -274,7 +284,9 @@ final class ShikimoriRESTClient: Sendable {
     // MARK: - v2 user_rates
 
     func userRates(query: UserRatesListQuery = UserRatesListQuery()) async throws -> [UserRateV2] {
-        var c = URLComponents(url: apiBase.appendingPathComponent("api/v2/user_rates"), resolvingAgainstBaseURL: false)!
+        guard var c = URLComponents(url: apiBase.appendingPathComponent("api/v2/user_rates"), resolvingAgainstBaseURL: false) else {
+            throw ShikimoriAPIError.invalidURL
+        }
         let items = query.queryItems()
         if !items.isEmpty { c.queryItems = items }
         guard let url = c.url else { throw ShikimoriAPIError.invalidURL }
@@ -300,8 +312,7 @@ final class ShikimoriRESTClient: Sendable {
 
     func createUserRate(_ body: UserRateV2CreateBody) async throws -> UserRateV2 {
         let url = apiBase.appendingPathComponent("api/v2/user_rates")
-        let enc = Self.userRateEncoder
-        let payload = try enc.encode(body)
+        let payload = try Self.userRateEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: url, method: "POST", jsonBody: payload)
         try Self.throwIfNeeded(httpResp, data: data, acceptable: [200, 201])
         do {
@@ -313,8 +324,7 @@ final class ShikimoriRESTClient: Sendable {
 
     func updateUserRate(id: Int, body: UserRateV2UpdateBody) async throws -> UserRateV2 {
         let url = apiBase.appendingPathComponent("api/v2/user_rates/\(id)")
-        let enc = Self.userRateEncoder
-        let payload = try enc.encode(body)
+        let payload = try Self.userRateEncoder.encode(body)
         let (data, httpResp) = try await http.jsonRequest(url: url, method: "PATCH", jsonBody: payload)
         try Self.throwIfNeeded(httpResp, data: data)
         do {

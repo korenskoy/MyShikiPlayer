@@ -48,18 +48,14 @@ final class OAuthTokenClient: Sendable {
         req.httpBody = body
         req.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
         req.setValue(configuration.userAgentHeaderValue, forHTTPHeaderField: "User-Agent")
-        await MainActor.run {
-            NetworkLogStore.shared.logOAuthEvent("token_request \(NetworkLogStore.maskedURLString(tokenURL))")
-        }
+        NetworkLogStore.shared.logOAuthEvent("token_request \(NetworkLogStore.maskedURLString(tokenURL))")
 
         let startedAt = Date()
         do {
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { throw ShikimoriAPIError.invalidResponse }
-            await MainActor.run {
-                let ms = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
-                NetworkLogStore.shared.logOAuthEvent("token_response \(http.statusCode) \(ms)ms \(data.count)B")
-            }
+            let ms = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
+            NetworkLogStore.shared.logOAuthEvent("token_response \(http.statusCode) \(ms)ms \(data.count)B")
             guard (200..<300).contains(http.statusCode) else {
                 throw ShikimoriAPIError.httpStatus(code: http.statusCode, body: data.isEmpty ? nil : data)
             }
@@ -69,9 +65,7 @@ final class OAuthTokenClient: Sendable {
                 throw ShikimoriAPIError.decoding(underlying: error, body: data)
             }
         } catch {
-            await MainActor.run {
-                NetworkLogStore.shared.logOAuthEvent("token_failed \(error.localizedDescription)")
-            }
+            NetworkLogStore.shared.logOAuthEvent("token_failed \(error.localizedDescription)")
             throw error
         }
     }

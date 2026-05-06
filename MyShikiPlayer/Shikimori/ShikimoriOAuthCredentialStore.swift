@@ -39,21 +39,32 @@ final class ShikimoriOAuthCredentialStore: Sendable {
 
     func save(_ credential: OAuthCredential) throws {
         let data = try JSONEncoder().encode(credential)
-        let q: [String: Any] = [
+        // The app has no background fetch / wake-from-lock requirements, so
+        // `WhenUnlockedThisDeviceOnly` is the right tier — keys are only
+        // accessible while the device is unlocked.
+        let lookup: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ] as CFDictionary)
-        let status = SecItemAdd(q as CFDictionary, nil)
-        guard status == errSecSuccess else { throw ShikimoriKeychainError.unexpectedStatus(status) }
+        // SecItemUpdate first → SecItemAdd on errSecItemNotFound. Avoids the
+        // delete+add race window where a concurrent reader (or a crash between
+        // the two calls) finds the slot empty.
+        let updateAttrs: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+        ]
+        let updateStatus = SecItemUpdate(lookup as CFDictionary, updateAttrs as CFDictionary)
+        if updateStatus == errSecSuccess { return }
+        if updateStatus != errSecItemNotFound {
+            throw ShikimoriKeychainError.unexpectedStatus(updateStatus)
+        }
+        var add = lookup
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        let addStatus = SecItemAdd(add as CFDictionary, nil)
+        guard addStatus == errSecSuccess else { throw ShikimoriKeychainError.unexpectedStatus(addStatus) }
     }
 
     func clear() throws {

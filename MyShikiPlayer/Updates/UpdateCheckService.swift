@@ -113,12 +113,17 @@ final class UpdateCheckService: ObservableObject {
             errorDescription: nil
         )
 
-        // Stamp the timestamp regardless of HTTP outcome so a 404 (no
-        // releases yet) or transient failure doesn't make us retry on every
-        // window appearance.
-        userDefaults.set(Date(), forKey: DefaultsKey.lastCheckAt)
+        // Stamp only on definitive HTTP outcomes (2xx success, 404 means "no
+        // releases yet"). Transient 5xx / 429 / network errors must NOT
+        // suppress the next probe for 6h — that would mask GitHub's CDN
+        // hiccups and freeze the update banner for half a day.
+        let status = http?.statusCode
+        let definitive = status.map { (200..<300).contains($0) || $0 == 404 } ?? false
+        if definitive {
+            userDefaults.set(Date(), forKey: DefaultsKey.lastCheckAt)
+        }
 
-        guard http?.statusCode == 200 else { return }
+        guard status == 200 else { return }
 
         guard let entry = ReleaseAtomParser.firstEntry(from: data) else {
             NetworkLogStore.shared.logAppError("update_check_parse_failed: empty or invalid atom feed")
@@ -164,8 +169,18 @@ final class UpdateCheckService: ObservableObject {
         }
         let trimmedTitle = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = trimmedTitle.isEmpty ? tag : trimmedTitle
-        let url = entry.url
-            ?? URL(string: "https://github.com/\(Self.repoOwner)/\(Self.repoName)/releases")!
+        // Defence-in-depth: only trust release URLs that resolve to GitHub.
+        // The Atom feed is a public artefact and a malicious mirror could
+        // replace it; the banner click should never deep-link off-domain.
+        let candidate = entry.url
+            ?? URL(string: "https://github.com/\(Self.repoOwner)/\(Self.repoName)/releases")
+        guard let url = candidate, Self.isTrustedReleaseHost(url) else {
+            NetworkLogStore.shared.logAppError(
+                "update_check_untrusted_url \(candidate?.absoluteString ?? "nil")"
+            )
+            availableUpdate = nil
+            return
+        }
         availableUpdate = AvailableUpdate(
             version: normalized,
             displayName: title,
@@ -177,6 +192,14 @@ final class UpdateCheckService: ObservableObject {
 
     static func normalize(_ tag: String) -> String {
         tag.hasPrefix("v") || tag.hasPrefix("V") ? String(tag.dropFirst()) : tag
+    }
+
+    /// Allow only the canonical GitHub domain (and its `*.github.com` family,
+    /// which covers redirects through `objects.githubusercontent.com` etc.).
+    /// Anything else came from a tampered or proxied feed.
+    static func isTrustedReleaseHost(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "github.com" || host.hasSuffix(".github.com")
     }
 
     /// Recognise common prerelease tag suffixes — `-alpha`, `-beta`, `-rc`,
