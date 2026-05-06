@@ -21,7 +21,6 @@ import Combine
 @MainActor
 final class PlaybackSession: ObservableObject {
     struct MediaSource: Identifiable, Hashable {
-        let id = UUID()
         let provider: SourceProvider
         let streamURL: URL
         /// Pure quality: "720p", "480p". No studio prefixes.
@@ -34,6 +33,13 @@ final class PlaybackSession: ObservableObject {
         let endingRangeSeconds: ClosedRange<Double>?
         let episode: Int
         let title: String
+
+        /// Identity is content-derived so SwiftUI's diff doesn't treat every
+        /// remap of `availableSources` as "row inserted" — that was firing
+        /// the picker's animation on every `prepare`. Stream URL alone is
+        /// almost unique; the provider prefix protects against the rare case
+        /// where two adapters resolve to the same CDN edge.
+        var id: String { "\(provider.rawValue)#\(streamURL.absoluteString)" }
     }
 
     @Published private(set) var availableSources: [MediaSource] = []
@@ -109,6 +115,14 @@ final class PlaybackSession: ObservableObject {
     private var autoSkipEnabled: Bool = UserDefaults.standard.bool(
         forKey: SettingsKeys.autoSkipChapters
     )
+
+    deinit {
+        // Cancel the deferred fallback-hint dismissal so a `Task.sleep`
+        // outliving the session can't fire after the owner is gone.
+        // `[weak self]` already prevents the write, but the slot would still
+        // sit in the scheduler for ~3.5s.
+        fallbackHintDismissTask?.cancel()
+    }
 
     init(sourceRegistry: SourceRegistry = .live, progressStore: WatchProgressStore? = nil) {
         self.sourceRegistry = sourceRegistry
@@ -300,12 +314,34 @@ final class PlaybackSession: ObservableObject {
         return true
     }
 
+    /// Increasing delay between consecutive retries of the same source. With
+    /// a deterministic-fail URL (e.g. expired CDN signature) the original
+    /// no-backoff loop was hammering the player engine ~30× per second,
+    /// pinning a CPU core for the maxLoadRetries window. 200ms / 500ms is
+    /// long enough to let the engine's own state settle and short enough
+    /// not to feel like a stall to the user.
+    private static let loadRetryBackoffNanos: [UInt64] = [200_000_000, 500_000_000]
+
     private func handleEngineLoadFailure(_ message: String) {
         diagnostics.log("engine load failure: \(message)")
         if loadRetryCount < maxLoadRetries, let current = selectedSource {
             loadRetryCount += 1
             diagnostics.log("retry \(loadRetryCount)/\(maxLoadRetries) for \(current.provider.rawValue) \(current.qualityLabel)")
-            engine.load(url: current.streamURL, autoPlay: true)
+            // Index into the backoff table by attempt number, clamped to the
+            // last entry — keeps the retry behaviour predictable even if
+            // `maxLoadRetries` grows.
+            let backoffIdx = min(loadRetryCount - 1, Self.loadRetryBackoffNanos.count - 1)
+            let delay = Self.loadRetryBackoffNanos[backoffIdx]
+            let retryURL = current.streamURL
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: delay)
+                guard let self else { return }
+                // Source may have been swapped while we were sleeping (user
+                // picked another studio). Skip the retry in that case so we
+                // don't load a URL the user already moved past.
+                guard self.selectedSource?.streamURL == retryURL else { return }
+                self.engine.load(url: retryURL, autoPlay: true)
+            }
             return
         }
         if let current = selectedSource,

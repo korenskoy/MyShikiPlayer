@@ -61,6 +61,13 @@ final class PlayerEngine: ObservableObject {
         if let appBecameActiveObserver {
             NotificationCenter.default.removeObserver(appBecameActiveObserver)
         }
+        // Window-key observers are added in `setHostWindow` and only cleared
+        // there on a fresh call. If the engine is released without a final
+        // `setHostWindow(nil)` (typical when the player sheet collapses), the
+        // tokens would leak inside NotificationCenter.
+        for observer in keyWindowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     /// Deferred autoplay only when this process is active and the player’s window is key (never when `hostWindow` is unset).
@@ -248,12 +255,22 @@ final class PlayerEngine: ObservableObject {
     private func bindCurrentItem(_ item: AVPlayerItem?) {
         itemCancellables.removeAll()
         canStartPlayback = false
+        // Wipe any error left over from the previous item so a delayed
+        // `.failed` from the OLD AVPlayerItem (it may publish status after we
+        // already replaced `currentItem`) cannot stick to the freshly-loaded
+        // URL. The identity guard below additionally protects the publisher
+        // path from cross-item leakage.
+        lastLoadError = nil
         guard let item else { return }
 
         item.publisher(for: \.status)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
                 guard let self else { return }
+                // Reject late events from a stale AVPlayerItem — by the time
+                // its status finally reaches `.failed`, the player is already
+                // serving a different URL.
+                guard self.player.currentItem === item else { return }
                 self.canStartPlayback = status == .readyToPlay
                 if status == .readyToPlay {
                     if let pendingSeekSeconds = self.pendingSeekSeconds {
