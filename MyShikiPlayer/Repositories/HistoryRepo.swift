@@ -12,12 +12,29 @@
 
 import Foundation
 
+/// Abstraction over the per-user history cache.
 @MainActor
-final class HistoryRepo {
+protocol HistoryRepository: AnyObject {
+    func cachedHistory(userId: Int, allowStale: Bool) -> [UserHistoryEntry]?
+    func history(
+        configuration: ShikimoriConfiguration,
+        userId: Int,
+        forceRefresh: Bool
+    ) async throws -> [UserHistoryEntry]
+    func historyPage(
+        configuration: ShikimoriConfiguration,
+        userId: Int,
+        page: Int,
+        limit: Int
+    ) async throws -> [UserHistoryEntry]
+}
+
+@MainActor
+final class HistoryRepo: HistoryRepository {
     static let shared = HistoryRepo()
 
     private static let diskFilename = "history.json"
-    nonisolated private static let firstPageLimit = 50
+    nonisolated static let firstPageLimit = 50
 
     private let cache = TTLCache<Int, [UserHistoryEntry]>(ttl: 5 * 60)
     private var pending: [Int: Task<[UserHistoryEntry], Error>] = [:]

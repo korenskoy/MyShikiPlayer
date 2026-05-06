@@ -8,8 +8,52 @@
 
 import Foundation
 
+/// Abstraction over the social feed cache (topics + topic + comments +
+/// friend activity). VMs depend on this protocol so tests can inject a
+/// fake without going through the network or disk.
 @MainActor
-final class SocialRepo {
+protocol SocialRepository: AnyObject {
+    func cachedFeed(forum: String, allowStale: Bool) -> [Topic]?
+    func feed(
+        configuration: ShikimoriConfiguration,
+        forum: String,
+        forceRefresh: Bool
+    ) async throws -> [Topic]
+    func feedPage(
+        configuration: ShikimoriConfiguration,
+        forum: String,
+        page: Int
+    ) async throws -> [Topic]
+
+    func cachedFriendsActivity(userId: Int, allowStale: Bool) -> [SocialRepo.FriendActivity]?
+    func friendsActivity(
+        configuration: ShikimoriConfiguration,
+        userId: Int,
+        forceRefresh: Bool
+    ) async throws -> [SocialRepo.FriendActivity]
+
+    func cachedTopic(id: Int, allowStale: Bool) -> Topic?
+    func topic(
+        configuration: ShikimoriConfiguration,
+        id: Int,
+        forceRefresh: Bool
+    ) async throws -> Topic
+
+    func cachedComments(topicId: Int, allowStale: Bool) -> [TopicComment]?
+    func comments(
+        configuration: ShikimoriConfiguration,
+        topicId: Int,
+        forceRefresh: Bool
+    ) async throws -> [TopicComment]
+    func commentsPage(
+        configuration: ShikimoriConfiguration,
+        topicId: Int,
+        page: Int
+    ) async throws -> [TopicComment]
+}
+
+@MainActor
+final class SocialRepo: SocialRepository {
     static let shared = SocialRepo()
 
     private static let diskFilenameFeed = "social-feed.json"
@@ -46,10 +90,10 @@ final class SocialRepo {
     private let commentsCache = TTLCache<Int, [TopicComment]>(ttl: 10 * 60)
     private let friendsActivityCache = TTLCache<Int, [FriendActivity]>(ttl: 5 * 60)
 
-    private var pendingFeed: [String: Task<[Topic], Error>] = [:]
-    private var pendingTopic: [Int: Task<Topic, Error>] = [:]
-    private var pendingComments: [Int: Task<[TopicComment], Error>] = [:]
-    private var pendingFriendsActivity: [Int: Task<[FriendActivity], Error>] = [:]
+    private let pendingFeed = TaskDeduplicator<String, [Topic]>()
+    private let pendingTopic = TaskDeduplicator<Int, Topic>()
+    private let pendingComments = TaskDeduplicator<Int, [TopicComment]>()
+    private let pendingFriendsActivity = TaskDeduplicator<Int, [FriendActivity]>()
 
     // MARK: - Feed
 
@@ -66,27 +110,23 @@ final class SocialRepo {
             NetworkLogStore.shared.logUIEvent("social_feed_hit forum=\(forum) count=\(cached.count)")
             return cached
         }
-        if let existing = pendingFeed[forum] { return try await existing.value }
-
-        let task = Task<[Topic], Error> { [weak self] in
-            defer { self?.pendingFeed.removeValue(forKey: forum) }
+        return try await pendingFeed.run(for: forum) { [weak self] in
             let rest = ShikimoriRESTClient(configuration: configuration)
             let topics = try await rest.topics(forum: forum, limit: 30)
-            self?.feedCache.set(topics, for: forum)
-            if let strongSelf = self {
-                DiskBackup.save(cache: strongSelf.feedCache, filename: Self.diskFilenameFeed)
+            await MainActor.run {
+                self?.feedCache.set(topics, for: forum)
+                if let strongSelf = self {
+                    DiskBackup.save(cache: strongSelf.feedCache, filename: Self.diskFilenameFeed)
+                }
+                NetworkLogStore.shared.logUIEvent("social_feed_loaded forum=\(forum) count=\(topics.count)")
             }
-            NetworkLogStore.shared.logUIEvent("social_feed_loaded forum=\(forum) count=\(topics.count)")
             return topics
         }
-        pendingFeed[forum] = task
-        return try await task.value
     }
 
     func invalidateFeed() {
         feedCache.invalidateAll()
-        pendingFeed.values.forEach { $0.cancel() }
-        pendingFeed.removeAll()
+        pendingFeed.cancelAll()
         DiskBackup.remove(filename: Self.diskFilenameFeed)
     }
 
@@ -125,22 +165,21 @@ final class SocialRepo {
             )
             return cached
         }
-        if let existing = pendingFriendsActivity[userId] { return try await existing.value }
-
-        let task = Task<[FriendActivity], Error> { [weak self] in
-            defer { self?.pendingFriendsActivity.removeValue(forKey: userId) }
+        return try await pendingFriendsActivity.run(for: userId) { [weak self] in
             let rest = ShikimoriRESTClient(configuration: configuration)
             let friends = try await rest.userFriends(id: userId)
             // Cap at 10 friends to avoid spamming the API — the rest will
             // land in "more" later (once we design pagination).
             let capped = Array(friends.prefix(10))
             guard !capped.isEmpty else {
-                self?.friendsActivityCache.set([], for: userId)
-                if let strongSelf = self {
-                    DiskBackup.save(
-                        cache: strongSelf.friendsActivityCache,
-                        filename: Self.diskFilenameFriends
-                    )
+                await MainActor.run {
+                    self?.friendsActivityCache.set([], for: userId)
+                    if let strongSelf = self {
+                        DiskBackup.save(
+                            cache: strongSelf.friendsActivityCache,
+                            filename: Self.diskFilenameFriends
+                        )
+                    }
                 }
                 return []
             }
@@ -179,20 +218,20 @@ final class SocialRepo {
             let sorted = activities.sorted { a, b in
                 (a.entries.first?.createdAt ?? .distantPast) > (b.entries.first?.createdAt ?? .distantPast)
             }
-            self?.friendsActivityCache.set(sorted, for: userId)
-            if let strongSelf = self {
-                DiskBackup.save(
-                    cache: strongSelf.friendsActivityCache,
-                    filename: Self.diskFilenameFriends
+            await MainActor.run {
+                self?.friendsActivityCache.set(sorted, for: userId)
+                if let strongSelf = self {
+                    DiskBackup.save(
+                        cache: strongSelf.friendsActivityCache,
+                        filename: Self.diskFilenameFriends
+                    )
+                }
+                NetworkLogStore.shared.logUIEvent(
+                    "social_friends_loaded user=\(userId) friends=\(friends.count) with_activity=\(sorted.count)"
                 )
             }
-            NetworkLogStore.shared.logUIEvent(
-                "social_friends_loaded user=\(userId) friends=\(friends.count) with_activity=\(sorted.count)"
-            )
             return sorted
         }
-        pendingFriendsActivity[userId] = task
-        return try await task.value
     }
 
     // MARK: - Topic
@@ -209,20 +248,17 @@ final class SocialRepo {
         if !forceRefresh, let cached = topicCache.get(id) {
             return cached
         }
-        if let existing = pendingTopic[id] { return try await existing.value }
-
-        let task = Task<Topic, Error> { [weak self] in
-            defer { self?.pendingTopic.removeValue(forKey: id) }
+        return try await pendingTopic.run(for: id) { [weak self] in
             let rest = ShikimoriRESTClient(configuration: configuration)
             let topic = try await rest.topic(id: id)
-            self?.topicCache.set(topic, for: id)
-            if let strongSelf = self {
-                DiskBackup.save(cache: strongSelf.topicCache, filename: Self.diskFilenameTopic)
+            await MainActor.run {
+                self?.topicCache.set(topic, for: id)
+                if let strongSelf = self {
+                    DiskBackup.save(cache: strongSelf.topicCache, filename: Self.diskFilenameTopic)
+                }
             }
             return topic
         }
-        pendingTopic[id] = task
-        return try await task.value
     }
 
     // MARK: - Comments
@@ -260,27 +296,24 @@ final class SocialRepo {
         if !forceRefresh, let cached = commentsCache.get(topicId) {
             return cached
         }
-        if let existing = pendingComments[topicId] { return try await existing.value }
-
-        let task = Task<[TopicComment], Error> { [weak self] in
-            defer { self?.pendingComments.removeValue(forKey: topicId) }
+        return try await pendingComments.run(for: topicId) { [weak self] in
             let rest = ShikimoriRESTClient(configuration: configuration)
             let comments = try await rest.comments(
                 commentableType: "Topic",
                 commentableId: topicId,
                 limit: 30
             )
-            self?.commentsCache.set(comments, for: topicId)
-            if let strongSelf = self {
-                DiskBackup.save(cache: strongSelf.commentsCache, filename: Self.diskFilenameComments)
+            await MainActor.run {
+                self?.commentsCache.set(comments, for: topicId)
+                if let strongSelf = self {
+                    DiskBackup.save(cache: strongSelf.commentsCache, filename: Self.diskFilenameComments)
+                }
+                NetworkLogStore.shared.logUIEvent(
+                    "social_comments_loaded topic=\(topicId) count=\(comments.count)"
+                )
             }
-            NetworkLogStore.shared.logUIEvent(
-                "social_comments_loaded topic=\(topicId) count=\(comments.count)"
-            )
             return comments
         }
-        pendingComments[topicId] = task
-        return try await task.value
     }
 
     func invalidateAll() {
@@ -288,14 +321,10 @@ final class SocialRepo {
         topicCache.invalidateAll()
         commentsCache.invalidateAll()
         friendsActivityCache.invalidateAll()
-        pendingFeed.values.forEach { $0.cancel() }
-        pendingTopic.values.forEach { $0.cancel() }
-        pendingComments.values.forEach { $0.cancel() }
-        pendingFriendsActivity.values.forEach { $0.cancel() }
-        pendingFeed.removeAll()
-        pendingTopic.removeAll()
-        pendingComments.removeAll()
-        pendingFriendsActivity.removeAll()
+        pendingFeed.cancelAll()
+        pendingTopic.cancelAll()
+        pendingComments.cancelAll()
+        pendingFriendsActivity.cancelAll()
         DiskBackup.remove(filename: Self.diskFilenameFeed)
         DiskBackup.remove(filename: Self.diskFilenameTopic)
         DiskBackup.remove(filename: Self.diskFilenameComments)

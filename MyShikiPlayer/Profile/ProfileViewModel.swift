@@ -15,15 +15,21 @@ final class ProfileViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var errorMessage: String?
 
+    private let repository: ProfileRepository
+
+    init(repository: ProfileRepository = ProfileRepo.shared) {
+        self.repository = repository
+    }
+
     func reload(configuration: ShikimoriConfiguration, userId: Int, forceRefresh: Bool = false) async {
-        if !forceRefresh, let cached = ProfileRepo.shared.cachedSnapshot(userId: userId, allowStale: true) {
+        if !forceRefresh, let cached = repository.cachedSnapshot(userId: userId, allowStale: true) {
             apply(cached)
         } else {
             isLoading = true
         }
         errorMessage = nil
         do {
-            let snap = try await ProfileRepo.shared.snapshot(
+            let snap = try await repository.snapshot(
                 configuration: configuration,
                 userId: userId,
                 forceRefresh: forceRefresh

@@ -14,8 +14,21 @@
 
 import Foundation
 
+/// Abstraction over the per-anime Kodik /search catalog cache. Used by
+/// `KodikAdapter` (player path) and `AnimeDetailRepo` (detail snapshot).
 @MainActor
-final class KodikCatalogRepo {
+protocol KodikCatalogRepository: AnyObject {
+    func cachedCatalog(shikimoriId: Int, allowStale: Bool) -> [KodikCatalogEntry]?
+    func catalog(
+        shikimoriId: Int,
+        token: String,
+        client: KodikClient,
+        forceRefresh: Bool
+    ) async throws -> [KodikCatalogEntry]
+}
+
+@MainActor
+final class KodikCatalogRepo: KodikCatalogRepository {
     static let shared = KodikCatalogRepo()
 
     private static let diskFilename = "kodik-catalog.json"

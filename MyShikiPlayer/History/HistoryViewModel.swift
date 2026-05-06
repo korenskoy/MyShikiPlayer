@@ -23,8 +23,10 @@ final class HistoryViewModel: ObservableObject {
     private var remoteEntries: [UserHistoryEntry] = []
     private var loadedPage = 1
     private var historyStoreSubscription: AnyCancellable?
+    private let repository: HistoryRepository
 
-    init() {
+    init(repository: HistoryRepository = HistoryRepo.shared) {
+        self.repository = repository
         // Local event → redraw instantly (no network request).
         // Without this, an episode just finished would only appear in
         // history after the next reload.
@@ -42,7 +44,7 @@ final class HistoryViewModel: ObservableObject {
         forceRefresh: Bool = false
     ) async {
         // SWR: show the cache immediately, no spinner.
-        if let userId, let cached = HistoryRepo.shared.cachedHistory(userId: userId, allowStale: true) {
+        if let userId, let cached = repository.cachedHistory(userId: userId, allowStale: true) {
             remoteEntries = cached
             recomputeItems()
         } else {
@@ -58,7 +60,7 @@ final class HistoryViewModel: ObservableObject {
         }
 
         do {
-            let entries = try await HistoryRepo.shared.history(
+            let entries = try await repository.history(
                 configuration: configuration,
                 userId: userId,
                 forceRefresh: forceRefresh
@@ -83,10 +85,11 @@ final class HistoryViewModel: ObservableObject {
         isLoadingMore = true
         let nextPage = loadedPage + 1
         do {
-            let page = try await HistoryRepo.shared.historyPage(
+            let page = try await repository.historyPage(
                 configuration: configuration,
                 userId: userId,
-                page: nextPage
+                page: nextPage,
+                limit: HistoryRepo.firstPageLimit
             )
             if page.isEmpty {
                 hasMore = false

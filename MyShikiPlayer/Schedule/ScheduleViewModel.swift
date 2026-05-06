@@ -23,16 +23,21 @@ final class ScheduleViewModel: ObservableObject {
     @Published private(set) var errorMessage: String?
     /// How many days ahead we show (including today).
     private let horizonDays: Int = 7
+    private let repository: CalendarRepository
+
+    init(repository: CalendarRepository = CalendarRepo.shared) {
+        self.repository = repository
+    }
 
     func reload(configuration: ShikimoriConfiguration, forceRefresh: Bool = false) async {
-        if !forceRefresh, let cached = CalendarRepo.shared.cached(allowStale: true) {
+        if !forceRefresh, let cached = repository.cached(allowStale: true) {
             sections = Self.group(entries: cached, horizon: horizonDays)
         } else {
             isLoading = true
         }
         errorMessage = nil
         do {
-            let entries = try await CalendarRepo.shared.entries(
+            let entries = try await repository.entries(
                 configuration: configuration,
                 forceRefresh: forceRefresh
             )

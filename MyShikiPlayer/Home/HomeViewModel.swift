@@ -43,10 +43,16 @@ final class HomeViewModel: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published private(set) var errorMessage: String?
 
+    private let repository: HomeRepository
+
+    init(repository: HomeRepository = HomeSectionsRepo.shared) {
+        self.repository = repository
+    }
+
     func reload(configuration: ShikimoriConfiguration, userId: Int?, forceRefresh: Bool = false) async {
         // SWR: show any cached data (even stale) without a spinner.
         // A fresh snapshot is fetched in the background and replaces it.
-        if !forceRefresh, let cached = HomeSectionsRepo.shared.cachedSnapshot(userId: userId, allowStale: true) {
+        if !forceRefresh, let cached = repository.cachedSnapshot(userId: userId, allowStale: true) {
             apply(snapshot: cached)
         } else {
             isLoading = true
@@ -54,7 +60,7 @@ final class HomeViewModel: ObservableObject {
         errorMessage = nil
 
         do {
-            let snap = try await HomeSectionsRepo.shared.snapshot(
+            let snap = try await repository.snapshot(
                 configuration: configuration,
                 userId: userId,
                 forceRefresh: forceRefresh

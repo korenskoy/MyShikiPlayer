@@ -9,8 +9,18 @@
 
 import Foundation
 
+/// Abstraction over the global ongoings calendar.
 @MainActor
-final class CalendarRepo {
+protocol CalendarRepository: AnyObject {
+    func cached(allowStale: Bool) -> [CalendarEntry]?
+    func entries(
+        configuration: ShikimoriConfiguration,
+        forceRefresh: Bool
+    ) async throws -> [CalendarEntry]
+}
+
+@MainActor
+final class CalendarRepo: CalendarRepository {
     static let shared = CalendarRepo()
 
     private static let diskFilename = "calendar.json"

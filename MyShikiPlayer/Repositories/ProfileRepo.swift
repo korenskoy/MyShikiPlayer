@@ -16,8 +16,20 @@
 
 import Foundation
 
+/// Abstraction over the profile (+ favourites) cache. Lets `ProfileViewModel`
+/// be tested without going through the network or disk.
 @MainActor
-final class ProfileRepo {
+protocol ProfileRepository: AnyObject {
+    func cachedSnapshot(userId: Int, allowStale: Bool) -> ProfileRepo.Snapshot?
+    func snapshot(
+        configuration: ShikimoriConfiguration,
+        userId: Int,
+        forceRefresh: Bool
+    ) async throws -> ProfileRepo.Snapshot
+}
+
+@MainActor
+final class ProfileRepo: ProfileRepository {
     static let shared = ProfileRepo()
 
     // Bumped from `profile.json` to discard snapshots saved by older

@@ -13,8 +13,21 @@
 
 import Foundation
 
+/// Abstraction over the home-screen snapshot store. Enables tests to
+/// inject a fake without touching the live singleton, network, or disk
+/// cache.
 @MainActor
-final class HomeSectionsRepo {
+protocol HomeRepository: AnyObject {
+    func cachedSnapshot(userId: Int?, allowStale: Bool) -> HomeSectionsRepo.Snapshot?
+    func snapshot(
+        configuration: ShikimoriConfiguration,
+        userId: Int?,
+        forceRefresh: Bool
+    ) async throws -> HomeSectionsRepo.Snapshot
+}
+
+@MainActor
+final class HomeSectionsRepo: HomeRepository {
     static let shared = HomeSectionsRepo()
 
     private static let diskFilename = "home-sections.json"
