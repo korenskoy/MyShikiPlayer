@@ -61,10 +61,7 @@ struct FriendActivityCard: View {
 
     private var latestNote: String {
         guard let date = activity.entries.first?.createdAt else { return "" }
-        let fmt = RelativeDateTimeFormatter()
-        fmt.locale = Locale(identifier: "ru_RU")
-        fmt.unitsStyle = .short
-        return fmt.localizedString(for: date, relativeTo: Date())
+        return SocialDateFormatters.relativeRu.localizedString(for: date, relativeTo: Date())
     }
 
     private func entryRow(_ entry: UserHistoryEntry) -> some View {

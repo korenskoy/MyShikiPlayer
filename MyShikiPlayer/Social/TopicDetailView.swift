@@ -457,10 +457,7 @@ extension TopicDetailView {
         // Forum name moved into the breadcrumb under the title — keep only
         // the relative timestamp here so the author block stays compact.
         guard let created = topic.createdAt else { return "" }
-        let fmt = RelativeDateTimeFormatter()
-        fmt.locale = Locale(identifier: "ru_RU")
-        fmt.unitsStyle = .short
-        return fmt.localizedString(for: created, relativeTo: Date())
+        return SocialDateFormatters.relativeRu.localizedString(for: created, relativeTo: Date())
     }
 
 }

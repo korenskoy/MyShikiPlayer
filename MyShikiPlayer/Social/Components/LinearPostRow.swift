@@ -208,18 +208,12 @@ struct LinearPostRow: View {
 
     private var relativeAgo: String {
         guard let created = comment.createdAt else { return "" }
-        let fmt = RelativeDateTimeFormatter()
-        fmt.locale = Locale(identifier: "ru_RU")
-        fmt.unitsStyle = .short
-        return fmt.localizedString(for: created, relativeTo: Date())
+        return SocialDateFormatters.relativeRu.localizedString(for: created, relativeTo: Date())
     }
 
     private var postedHHMM: String? {
         guard let created = comment.createdAt else { return nil }
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "ru_RU")
-        fmt.dateFormat = "HH:mm"
-        return fmt.string(from: created)
+        return SocialDateFormatters.hhmmRu.string(from: created)
     }
 
     private func copyLink() {

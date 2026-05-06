@@ -13,6 +13,22 @@ struct RailListsBlock: View {
     @Environment(\.appTheme) private var theme
     let stats: [AnimeStatusesStat]
 
+    private struct Row { let status: String; let count: Int; let fraction: Double; let formattedCount: String }
+
+    /// Precomputed table — built once per `init`, so the rows don't re-walk
+    /// the stats / re-allocate `NumberFormatter` on every theme tick.
+    private let orderedRows: [Row]
+    private let total: Int
+    private let formattedTotal: String
+
+    init(stats: [AnimeStatusesStat]) {
+        self.stats = stats
+        let computed = Self.compute(stats: stats)
+        self.orderedRows = computed.rows
+        self.total = computed.total
+        self.formattedTotal = computed.formattedTotal
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("СПИСКИ")
@@ -39,13 +55,13 @@ struct RailListsBlock: View {
                                 RoundedRectangle(cornerRadius: 2)
                                     .fill(color(for: row.status).opacity(0.85))
                                     .frame(
-                                        width: geo.size.width * fraction(row.count),
+                                        width: geo.size.width * row.fraction,
                                         height: 6
                                     )
                             }
                             .frame(height: 6)
                         }
-                        Text(formatCount(row.count))
+                        Text(row.formattedCount)
                             .font(.dsMono(11))
                             .foregroundStyle(theme.fg3)
                             .frame(width: 56, alignment: .trailing)
@@ -55,7 +71,7 @@ struct RailListsBlock: View {
             }
 
             if total > 0 {
-                Text("всего: \(formatCount(total))")
+                Text("всего: \(formattedTotal)")
                     .font(.dsMono(10))
                     .foregroundStyle(theme.fg3)
                     .padding(.top, 2)
@@ -73,41 +89,52 @@ struct RailListsBlock: View {
         )
     }
 
-    private struct Row { let status: String; let count: Int }
-
-    private var orderedRows: [Row] {
-        let order = ["completed", "watching", "planned", "on_hold", "dropped", "rewatching"]
-        var byStatus: [String: Int] = [:]
-        for s in stats { byStatus[s.status] = (byStatus[s.status] ?? 0) + s.count }
-        var rows: [Row] = []
-        for s in order {
-            if let count = byStatus.removeValue(forKey: s), count > 0 {
-                rows.append(Row(status: s, count: count))
-            }
-        }
-        for (status, count) in byStatus where count > 0 {
-            rows.append(Row(status: status, count: count))
-        }
-        return rows
-    }
-
-    private var total: Int { stats.reduce(0) { $0 + $1.count } }
-
-    /// Bar width is normalised against the largest bucket so even tiny rows
-    /// (e.g. "rewatching") stay visible. Falls back to 0 when there is no
-    /// data, which collapses the bar to invisible.
-    private func fraction(_ count: Int) -> Double {
-        let maxCount = stats.map(\.count).max() ?? 0
-        guard maxCount > 0 else { return 0 }
-        return Double(count) / Double(maxCount)
-    }
-
-    private func formatCount(_ n: Int) -> String {
+    /// Single static `NumberFormatter` — building one on every render is
+    /// surprisingly expensive in aggregate, since the sidebar updates with
+    /// every parent re-render of the topic detail view.
+    private static let countFormatter: NumberFormatter = {
         let f = NumberFormatter()
         f.locale = Locale(identifier: "ru_RU")
         f.numberStyle = .decimal
         f.groupingSeparator = " "
-        return f.string(from: NSNumber(value: n)) ?? "\(n)"
+        return f
+    }()
+
+    private static func formatCount(_ n: Int) -> String {
+        countFormatter.string(from: NSNumber(value: n)) ?? "\(n)"
+    }
+
+    private static func compute(
+        stats: [AnimeStatusesStat]
+    ) -> (rows: [Row], total: Int, formattedTotal: String) {
+        let order = ["completed", "watching", "planned", "on_hold", "dropped", "rewatching"]
+        var byStatus: [String: Int] = [:]
+        for s in stats { byStatus[s.status] = (byStatus[s.status] ?? 0) + s.count }
+
+        var ordered: [(status: String, count: Int)] = []
+        for s in order {
+            if let count = byStatus.removeValue(forKey: s), count > 0 {
+                ordered.append((s, count))
+            }
+        }
+        for (status, count) in byStatus where count > 0 {
+            ordered.append((status, count))
+        }
+
+        let total = ordered.reduce(0) { $0 + $1.count }
+        let maxCount = ordered.map(\.count).max() ?? 0
+        let rows: [Row] = ordered.map { entry in
+            // Bar width is normalised against the largest bucket so even tiny
+            // rows stay visible.
+            let fraction = maxCount > 0 ? Double(entry.count) / Double(maxCount) : 0
+            return Row(
+                status: entry.status,
+                count: entry.count,
+                fraction: fraction,
+                formattedCount: formatCount(entry.count)
+            )
+        }
+        return (rows, total, formatCount(total))
     }
 
     private func label(for status: String) -> String {

@@ -142,11 +142,15 @@ struct ScheduleView: View {
     }
 
     /// "Wednesday, April 23" — full human-readable date.
+    private static let dayTitleFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = "EEEE, d MMMM"
+        return f
+    }()
+
     private static func titleFor(day: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "ru_RU")
-        fmt.dateFormat = "EEEE, d MMMM"
-        return fmt.string(from: day).capitalizedFirst
+        dayTitleFormatter.string(from: day).capitalizedFirst
     }
 
     private static func episodeWord(_ count: Int) -> String {

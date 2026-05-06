@@ -140,10 +140,7 @@ struct TopicCard: View {
             parts.append(name)
         }
         if let created = topic.createdAt {
-            let fmt = RelativeDateTimeFormatter()
-            fmt.locale = Locale(identifier: "ru_RU")
-            fmt.unitsStyle = .short
-            parts.append(fmt.localizedString(for: created, relativeTo: Date()))
+            parts.append(SocialDateFormatters.relativeRu.localizedString(for: created, relativeTo: Date()))
         }
         return parts.joined(separator: " · ")
     }
