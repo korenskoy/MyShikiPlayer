@@ -75,6 +75,35 @@ final class AnimeDetailsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.userEpisodesWatched, 0)
     }
 
+    func testLoadDoesNotRollBackUserEpisodesWatched() async {
+        // Regression: 85%-threshold PATCH and player-close `load(forceRefresh:)`
+        // fire concurrently. The GET that built the second snapshot can carry a
+        // pre-PATCH user_rate.episodes — apply(snapshot:) must not roll the
+        // already-bumped counter back.
+        let repo = StubAnimeDetailsRepository()
+        repo.snapshotResult = .success(
+            makeSnapshot(
+                detail: makeDetail(
+                    userRate: UserRateREST(id: 1, score: nil, status: "watching", episodes: 9, rewatches: 0)
+                )
+            )
+        )
+        let viewModel = makeViewModel(repository: repo)
+        await viewModel.load()
+        XCTAssertEqual(viewModel.userEpisodesWatched, 9)
+
+        repo.snapshotResult = .success(
+            makeSnapshot(
+                detail: makeDetail(
+                    userRate: UserRateREST(id: 1, score: nil, status: "watching", episodes: 8, rewatches: 0)
+                )
+            )
+        )
+        await viewModel.load(forceRefresh: true)
+
+        XCTAssertEqual(viewModel.userEpisodesWatched, 9)
+    }
+
     func testLoadKeepsStaleSnapshotWhenRefreshFails() async {
         let repo = StubAnimeDetailsRepository()
         repo.cached = makeSnapshot(detail: makeDetail(id: 7, russian: "Кэш"))

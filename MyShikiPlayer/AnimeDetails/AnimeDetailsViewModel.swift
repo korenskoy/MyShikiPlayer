@@ -192,7 +192,12 @@ final class AnimeDetailsViewModel: ObservableObject {
             userRateId = rate.id
             userStatus = rate.status
             userScore = rate.score
-            userEpisodesWatched = rate.episodes ?? 0
+            // Monotonic — `markEpisodeWatched` may race a `load(forceRefresh:)`
+            // (85%-threshold PATCH vs player-close refresh fire concurrent
+            // Tasks). The GET that built this snapshot can carry a pre-PATCH
+            // user_rate, which would visibly un-mark the just-watched episode.
+            // Same invariant `markEpisodeWatched` enforces server-side.
+            userEpisodesWatched = max(userEpisodesWatched, rate.episodes ?? 0)
         } else {
             userRateId = nil
             userStatus = nil
