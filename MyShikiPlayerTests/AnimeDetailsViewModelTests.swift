@@ -76,10 +76,9 @@ final class AnimeDetailsViewModelTests: XCTestCase {
     }
 
     func testLoadDoesNotRollBackUserEpisodesWatched() async {
-        // Regression: 85%-threshold PATCH and player-close `load(forceRefresh:)`
-        // fire concurrently. The GET that built the second snapshot can carry a
-        // pre-PATCH user_rate.episodes — apply(snapshot:) must not roll the
-        // already-bumped counter back.
+        // Regression — episode counters via the monotonic `max()` defense
+        // applied even without a tracked local mutation. Exercises the
+        // belt-and-suspenders path in `apply(snapshot:)`.
         let repo = StubAnimeDetailsRepository()
         repo.snapshotResult = .success(
             makeSnapshot(
@@ -102,6 +101,59 @@ final class AnimeDetailsViewModelTests: XCTestCase {
         await viewModel.load(forceRefresh: true)
 
         XCTAssertEqual(viewModel.userEpisodesWatched, 9)
+    }
+
+    func testLoadPreservesUserRateAfterRecentMutation() async {
+        // Regression — after a local user_rate mutation a concurrent
+        // `load(forceRefresh:)` may apply a snapshot whose user_rate was
+        // GET-ed before the PATCH landed server-side. Within the guard
+        // window the snapshot's user_rate must be ignored entirely so
+        // status / score / episodes don't visibly revert.
+        let mutations = StubUserRateMutating()
+        mutations.nextUpdateResult = UserRateMutationResult(
+            rateId: 1,
+            status: "completed",
+            score: 7,
+            episodesWatched: 12
+        )
+        let repo = StubAnimeDetailsRepository()
+        // First load: seeds VM with pre-mutation state.
+        repo.snapshotResult = .success(
+            makeSnapshot(
+                detail: makeDetail(
+                    episodes: 12,
+                    episodesAired: 12,
+                    userRate: UserRateREST(id: 1, score: 7, status: "watching", episodes: 11, rewatches: 0)
+                )
+            )
+        )
+        let viewModel = makeViewModel(repository: repo, currentUserId: 42, mutations: mutations)
+        await viewModel.load()
+        XCTAssertEqual(viewModel.userStatus, "watching")
+        XCTAssertEqual(viewModel.userEpisodesWatched, 11)
+
+        // Drive the mutation: marks the final episode → server auto-flips
+        // status to "completed", score is unchanged.
+        await viewModel.markEpisodeWatched(12)
+        XCTAssertEqual(viewModel.userStatus, "completed")
+        XCTAssertEqual(viewModel.userScore, 7)
+        XCTAssertEqual(viewModel.userEpisodesWatched, 12)
+
+        // Stale snapshot — GET issued before the PATCH applied.
+        repo.snapshotResult = .success(
+            makeSnapshot(
+                detail: makeDetail(
+                    episodes: 12,
+                    episodesAired: 12,
+                    userRate: UserRateREST(id: 1, score: 5, status: "watching", episodes: 11, rewatches: 0)
+                )
+            )
+        )
+        await viewModel.load(forceRefresh: true)
+
+        XCTAssertEqual(viewModel.userStatus, "completed")
+        XCTAssertEqual(viewModel.userScore, 7)
+        XCTAssertEqual(viewModel.userEpisodesWatched, 12)
     }
 
     func testLoadKeepsStaleSnapshotWhenRefreshFails() async {
@@ -253,16 +305,21 @@ final class AnimeDetailsViewModelTests: XCTestCase {
 
     private func makeViewModel(
         repository: AnimeDetailsRepository,
-        shikimoriId: Int = 1
+        shikimoriId: Int = 1,
+        currentUserId: Int? = nil,
+        mutations: UserRateMutating? = nil
     ) -> AnimeDetailsViewModel {
+        // Default param expressions are evaluated in nonisolated context, so
+        // a @MainActor `NoopUserRateMutating()` can't be the literal default —
+        // resolve here where we have main-actor isolation.
         AnimeDetailsViewModel(
             shikimoriId: shikimoriId,
             configuration: .testing(),
-            currentUserId: nil,
+            currentUserId: currentUserId,
             session: PlaybackSession(),
             kodikClient: KodikClient(),
             repository: repository,
-            mutations: NoopUserRateMutating()
+            mutations: mutations ?? NoopUserRateMutating()
         )
     }
 
@@ -453,6 +510,64 @@ private final class NoopUserRateMutating: UserRateMutating {
         currentlyFavorite: Bool
     ) async throws -> Bool {
         XCTFail("Unexpected toggleFavorite call in non-mutation test")
+        throw StubError.unreachable
+    }
+}
+
+/// Records calls and returns canned `UserRateMutationResult`s — used by
+/// tests that need to drive a user_rate mutation without going to the network.
+@MainActor
+private final class StubUserRateMutating: UserRateMutating {
+    var nextUpdateResult: UserRateMutationResult?
+    var nextCreateResult: UserRateMutationResult?
+
+    func updateUserRate(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        rateId: Int,
+        status: String?,
+        score: Int?,
+        episodesWatched: Int?
+    ) async throws -> UserRateMutationResult {
+        guard let result = nextUpdateResult else {
+            XCTFail("updateUserRate called without nextUpdateResult set")
+            throw StubError.notSet
+        }
+        return result
+    }
+
+    func createUserRate(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        status: String,
+        score: Int?,
+        episodesWatched: Int?
+    ) async throws -> UserRateMutationResult {
+        guard let result = nextCreateResult else {
+            XCTFail("createUserRate called without nextCreateResult set")
+            throw StubError.notSet
+        }
+        return result
+    }
+
+    func deleteUserRate(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        rateId: Int
+    ) async throws {
+        // no-op — tests that need to assert delete behaviour can subclass.
+    }
+
+    func toggleFavorite(
+        configuration: ShikimoriConfiguration,
+        animeId: Int,
+        userId: Int,
+        currentlyFavorite: Bool
+    ) async throws -> Bool {
+        XCTFail("Unexpected toggleFavorite call in stub")
         throw StubError.unreachable
     }
 }

@@ -47,6 +47,14 @@ final class AnimeDetailsViewModel: ObservableObject {
     /// resolver lives here (Phase 4 split — keeps the picker rule in one place).
     private let studioPicker = StudioPickerVM()
 
+    /// Timestamp of the last successful local user_rate mutation. Used by
+    /// `apply(snapshot:)` to detect a stale-GET-after-PATCH race: when the
+    /// snapshot's `user_rate` was fetched before our PATCH applied
+    /// server-side, blindly overwriting would visibly revert status / score /
+    /// episodes. Within the guard window we trust local state.
+    private var lastLocalUserRateMutationAt: Date?
+    private static let localUserRateGuardWindow: TimeInterval = 5
+
     init(
         shikimoriId: Int,
         configuration: ShikimoriConfiguration,
@@ -188,15 +196,27 @@ final class AnimeDetailsViewModel: ObservableObject {
         allVideos = snapshot.videos
         related = snapshot.related
 
-        if let rate = snapshot.detail.userRate {
+        let recentLocalMutation = lastLocalUserRateMutationAt.map {
+            Date().timeIntervalSince($0) < Self.localUserRateGuardWindow
+        } ?? false
+
+        if recentLocalMutation {
+            // A user_rate PATCH/POST/DELETE just landed locally. The snapshot's
+            // GET may have been issued before that mutation applied on the
+            // server (the 85%-threshold PATCH and player-close
+            // `load(forceRefresh:)` fire as concurrent Tasks), so taking the
+            // snapshot's user_rate verbatim would visibly revert status /
+            // score / episodes. Within the guard window we trust local state.
+            NetworkLogStore.shared.logUIEvent(
+                "details_vm_snapshot_userrate_skipped id=\(shikimoriId) reason=fresh_local_mutation"
+            )
+        } else if let rate = snapshot.detail.userRate {
             userRateId = rate.id
             userStatus = rate.status
             userScore = rate.score
-            // Monotonic — `markEpisodeWatched` may race a `load(forceRefresh:)`
-            // (85%-threshold PATCH vs player-close refresh fire concurrent
-            // Tasks). The GET that built this snapshot can carry a pre-PATCH
-            // user_rate, which would visibly un-mark the just-watched episode.
-            // Same invariant `markEpisodeWatched` enforces server-side.
+            // Defense-in-depth: episode counters never regress (matches the
+            // monotonic invariant in `markEpisodeWatched`), even if the
+            // guard window above somehow expires before a slow snapshot.
             userEpisodesWatched = max(userEpisodesWatched, rate.episodes ?? 0)
         } else {
             userRateId = nil
@@ -283,6 +303,7 @@ final class AnimeDetailsViewModel: ObservableObject {
             userScore = nil
             userEpisodesWatched = 0
         }
+        lastLocalUserRateMutationAt = Date()
     }
 
     /// Marks an episode as watched in user_rate. Never decreases the counter
