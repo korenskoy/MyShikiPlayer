@@ -32,6 +32,7 @@ enum DSIconName: String, CaseIterable {
     case skip
     case skip10Back
     case skip10Forward
+    case skip80Forward
     case list
     case clock
     case fire
@@ -77,6 +78,10 @@ enum DSIconName: String, CaseIterable {
         case .skip:      return "forward.fill"
         case .skip10Back:    return "gobackward.10"
         case .skip10Forward: return "goforward.10"
+        // SF Symbols has no `goforward.80`; `goforward.plus` is Apple's
+        // idiomatic glyph for non-standard skip intervals — the exact
+        // amount is conveyed through the tooltip on the button itself.
+        case .skip80Forward: return "goforward.plus"
         case .list:      return "list.bullet"
         case .clock:     return "clock"
         case .fire:      return "flame"

@@ -93,6 +93,11 @@ struct PlayerBottomBar: View {
             }
             .help("Вперёд 10 с (→)")
 
+            DSPlayerIconButton(icon: .skip80Forward) {
+                engine.seek(delta: 80)
+            }
+            .help("Вперёд 80 с")
+
             volumeSlider
 
             Spacer(minLength: 10)
