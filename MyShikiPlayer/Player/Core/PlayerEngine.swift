@@ -150,12 +150,21 @@ final class PlayerEngine: ObservableObject {
         isPlaying ? pause() : play()
     }
 
+    /// Optimistic seek: requests are dispatched with infinite tolerance so
+    /// AVFoundation snaps to the nearest already-available keyframe / HLS
+    /// segment boundary. The call returns instantly even when the target
+    /// region is not yet buffered — sub-second accuracy is fine for 24 fps
+    /// anime, and the win is that scrubbing, ±N shortcuts, resume and
+    /// skip-intro never block on download.
     func seek(seconds: Double) {
         let requested = max(0, seconds)
         let target = duration > 0 ? min(duration, requested) : requested
         guard target.isFinite else { return }
-        isBuffering = true
         guard canStartPlayback else {
+            // Pre-ready seek — queued and applied from the readyToPlay
+            // handler in `bindCurrentItem`. Surface the spinner here because
+            // this is the one path where the call really is gated on a load.
+            isBuffering = true
             pendingSeekSeconds = target
             return
         }
@@ -231,7 +240,11 @@ final class PlayerEngine: ObservableObject {
 
     private func applySeek(seconds: Double) {
         let time = CMTime(seconds: seconds, preferredTimescale: 600)
-        player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        player.seek(
+            to: time,
+            toleranceBefore: .positiveInfinity,
+            toleranceAfter: .positiveInfinity
+        ) { [weak self] _ in
             guard let self else { return }
             self.pendingSeekSeconds = nil
             if self.player.timeControlStatus != .waitingToPlayAtSpecifiedRate {

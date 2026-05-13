@@ -16,6 +16,9 @@ struct ChapterScrubBar: View {
     let currentTime: Double
     let accent: Color
 
+    /// Fires on every drag sample so the player follows the thumb live and
+    /// once more on release. AVFoundation coalesces in-flight seeks, so no
+    /// client-side throttling is required.
     var onSeek: (Double) -> Void = { _ in }
 
     @State private var dragFraction: Double? = nil
@@ -113,6 +116,7 @@ struct ChapterScrubBar: View {
             .onChanged { value in
                 let fraction = max(0, min(1, value.location.x / geo.size.width))
                 dragFraction = fraction
+                onSeek(fraction * duration)
             }
             .onEnded { value in
                 let fraction = max(0, min(1, value.location.x / geo.size.width))
