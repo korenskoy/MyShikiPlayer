@@ -32,7 +32,7 @@ Configuration/Local.xcconfig
 *.mobileprovision
 
 # Private docs and design reference (kept locally, not published)
-docs/
+private_docs/
 
 # Claude Code workspaces
 .claude/
