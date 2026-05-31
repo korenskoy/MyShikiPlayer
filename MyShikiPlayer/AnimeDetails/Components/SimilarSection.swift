@@ -9,6 +9,10 @@ import SwiftUI
 
 struct SimilarSection: View {
     let items: [AnimeListItem]
+    /// Cap on how many cards to render. Default keeps the long-standing
+    /// "Похожее" behavior (10); callers wanting a larger grid (e.g. the
+    /// franchise section) pass a higher value.
+    var limit: Int = 10
     let onOpen: (AnimeListItem) -> Void
 
     private let columns: [GridItem] = Array(
@@ -21,7 +25,7 @@ struct SimilarSection: View {
             EmptyView()
         } else {
             LazyVGrid(columns: columns, alignment: .leading, spacing: 14) {
-                ForEach(items.prefix(10), id: \.id) { item in
+                ForEach(items.prefix(limit), id: \.id) { item in
                     CatalogCard(item: item) { onOpen(item) }
                 }
             }

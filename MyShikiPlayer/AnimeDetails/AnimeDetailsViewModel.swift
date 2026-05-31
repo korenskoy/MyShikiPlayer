@@ -23,6 +23,7 @@ final class AnimeDetailsViewModel: ObservableObject {
     @Published private(set) var stats: GraphQLAnimeStatsEntry?
     @Published private(set) var catalogEntries: [KodikCatalogEntry] = []
     @Published private(set) var related: [AnimeListItem] = []
+    @Published private(set) var franchiseItems: [AnimeListItem] = []
     @Published private(set) var allScreenshots: [AnimeScreenshotREST] = []
     @Published private(set) var allVideos: [AnimeVideoREST] = []
     @Published private(set) var selectedTranslationId: Int?
@@ -195,6 +196,7 @@ final class AnimeDetailsViewModel: ObservableObject {
         allScreenshots = snapshot.screenshots
         allVideos = snapshot.videos
         related = snapshot.related
+        franchiseItems = snapshot.franchiseItems
 
         let recentLocalMutation = lastLocalUserRateMutationAt.map {
             Date().timeIntervalSince($0) < Self.localUserRateGuardWindow

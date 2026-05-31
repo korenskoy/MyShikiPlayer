@@ -44,6 +44,41 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
         let screenshots: [AnimeScreenshotREST]
         let videos: [AnimeVideoREST]
         let related: [AnimeListItem]
+        /// Other titles from the same Shikimori franchise, ordered by aired_on.
+        /// Distinct from `related` (which mixes genre + franchise) and rendered
+        /// as its own section in the details view.
+        let franchiseItems: [AnimeListItem]
+
+        init(
+            detail: AnimeDetail,
+            stats: GraphQLAnimeStatsEntry?,
+            kodikCatalog: [KodikCatalogEntry],
+            screenshots: [AnimeScreenshotREST],
+            videos: [AnimeVideoREST],
+            related: [AnimeListItem],
+            franchiseItems: [AnimeListItem]
+        ) {
+            self.detail = detail
+            self.stats = stats
+            self.kodikCatalog = kodikCatalog
+            self.screenshots = screenshots
+            self.videos = videos
+            self.related = related
+            self.franchiseItems = franchiseItems
+        }
+
+        // Older on-disk snapshots predate `franchiseItems` — decode it as empty
+        // when missing instead of failing the whole snapshot.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            detail = try c.decode(AnimeDetail.self, forKey: .detail)
+            stats = try c.decodeIfPresent(GraphQLAnimeStatsEntry.self, forKey: .stats)
+            kodikCatalog = try c.decode([KodikCatalogEntry].self, forKey: .kodikCatalog)
+            screenshots = try c.decode([AnimeScreenshotREST].self, forKey: .screenshots)
+            videos = try c.decode([AnimeVideoREST].self, forKey: .videos)
+            related = try c.decode([AnimeListItem].self, forKey: .related)
+            franchiseItems = try c.decodeIfPresent([AnimeListItem].self, forKey: .franchiseItems) ?? []
+        }
     }
 
     private let cache = TTLCache<Int, Snapshot>(ttl: 30 * 60)
@@ -70,7 +105,8 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
             kodikCatalog: fresh,
             screenshots: cached.screenshots,
             videos: cached.videos,
-            related: cached.related
+            related: cached.related,
+            franchiseItems: cached.franchiseItems
         )
         cache.set(merged, for: id)
         return merged
@@ -102,7 +138,8 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
                     kodikCatalog: fresh,
                     screenshots: cached.screenshots,
                     videos: cached.videos,
-                    related: cached.related
+                    related: cached.related,
+                    franchiseItems: cached.franchiseItems
                 )
                 cache.set(updated, for: id)
                 DiskBackup.save(cache: cache, filename: Self.diskFilename)
@@ -164,13 +201,20 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
                 items: relatedRaw
             )
 
+            let franchiseRaw = await Self.loadFranchise(detail: detail, rest: rest)
+            let franchiseItems = await PosterEnricher.shared.enriched(
+                configuration: configuration,
+                items: franchiseRaw
+            )
+
             let snapshot = Snapshot(
                 detail: detail,
                 stats: stats,
                 kodikCatalog: kodik,
                 screenshots: shots,
                 videos: videos,
-                related: related
+                related: related,
+                franchiseItems: franchiseItems
             )
             self?.cache.set(snapshot, for: id)
             if let strongSelf = self {
@@ -317,5 +361,64 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
             if let items = try? await rest.animes(query: q) { append(items) }
         }
         return collected
+    }
+
+    /// Other titles from the same franchise, ordered by air date. Distinct
+    /// from `loadRelated` (genre + franchise mix) — this powers the dedicated
+    /// "Другие части" section. Returns empty if the title has no franchise id.
+    /// Shikimori caps `/api/animes` at 50 items per page, so we paginate up
+    /// to `desiredTotal` items.
+    private static func loadFranchise(
+        detail: AnimeDetail,
+        rest: ShikimoriRESTClient,
+        desiredTotal: Int = 100,
+        pageSize: Int = 50
+    ) async -> [AnimeListItem] {
+        guard let franchise = detail.franchise, !franchise.isEmpty else { return [] }
+        var collected: [AnimeListItem] = []
+        var seen = Set<Int>([detail.id])
+        var page = 1
+        let maxPages = max(1, (desiredTotal + pageSize - 1) / pageSize)
+
+        while collected.count < desiredTotal && page <= maxPages {
+            var q = AnimeListQuery()
+            q.limit = pageSize
+            q.page = page
+            q.franchise = franchise
+            q.order = AnimeOrder.airedOn.rawValue
+            q.excludeIds = String(detail.id)
+            guard let batch = try? await rest.animes(query: q), !batch.isEmpty else { break }
+            for item in batch where !seen.contains(item.id) {
+                seen.insert(item.id)
+                collected.append(item)
+                if collected.count >= desiredTotal { break }
+            }
+            // Shikimori sometimes echoes the same page when there's no next —
+            // stop early if the batch was short.
+            if batch.count < pageSize { break }
+            page += 1
+        }
+        // Strict chronological ascending order — Shikimori's `aired_on=desc`
+        // sometimes interleaves specials and movies out of date order, so we
+        // resort client-side. ISO date strings compare correctly. Items with
+        // no date at all go to the end.
+        return collected.sorted { lhs, rhs in
+            let l = airedOnKey(lhs)
+            let r = airedOnKey(rhs)
+            switch (l, r) {
+            case let (l?, r?):     return l < r
+            case (.some, .none):   return true
+            case (.none, .some):   return false
+            case (.none, .none):   return false
+            }
+        }
+    }
+
+    /// Best-effort date key for franchise ordering: prefer `airedOn`, fall
+    /// back to `releasedOn`. Empty strings count as missing.
+    private static func airedOnKey(_ item: AnimeListItem) -> String? {
+        if let s = item.airedOn, !s.isEmpty { return s }
+        if let s = item.releasedOn, !s.isEmpty { return s }
+        return nil
     }
 }

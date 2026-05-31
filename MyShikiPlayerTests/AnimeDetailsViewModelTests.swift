@@ -348,7 +348,8 @@ final class AnimeDetailsViewModelTests: XCTestCase {
             kodikCatalog: catalog,
             screenshots: [],
             videos: detail.videos ?? [],
-            related: related
+            related: related,
+            franchiseItems: []
         )
     }
 

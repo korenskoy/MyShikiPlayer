@@ -186,6 +186,14 @@ struct AnimeDetailsView: View {
                 TrailersSection(videos: vm.trailerVideos)
             }
 
+            if !vm.franchiseItems.isEmpty {
+                DetailsSectionHeader(
+                    title: "Франшиза",
+                    action: vm.franchiseItems.count > 1 ? "\(vm.franchiseItems.count) шт." : nil
+                )
+                SimilarSection(items: vm.franchiseItems, limit: 100, onOpen: onOpenAnime)
+            }
+
             if !vm.related.isEmpty {
                 DetailsSectionHeader(title: "Похожее", action: nil)
                 SimilarSection(items: vm.related, onOpen: onOpenAnime)
