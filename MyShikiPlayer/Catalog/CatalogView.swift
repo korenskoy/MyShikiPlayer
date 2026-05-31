@@ -40,6 +40,20 @@ struct CatalogView: View {
         )
     }
 
+    /// Sort direction. Catalog reverses already-loaded items client-side —
+    /// the server still returns descending. Pagination keeps appending raw
+    /// pages to `model.items`; the grid always renders `displayedItems`.
+    private var ascending: Binding<Bool> {
+        Binding(
+            get: { filter.selectedAscending },
+            set: { filter.selectedAscending = $0 }
+        )
+    }
+
+    private var displayedItems: [AnimeListItem] {
+        filter.selectedAscending ? model.items.reversed() : model.items
+    }
+
     var body: some View {
         ZStack {
             gridLayout
@@ -81,6 +95,7 @@ struct CatalogView: View {
                 CatalogHeader(
                     totalCount: model.items.count,
                     order: order,
+                    ascending: ascending,
                     variant: variant,
                     activeFacetLabels: activeFacetLabels,
                     onResetFilters: resetAllFilters
@@ -122,21 +137,21 @@ struct CatalogView: View {
                 switch variant.wrappedValue {
                 case .grid:
                     LazyVGrid(columns: columns(count: 5), alignment: .leading, spacing: 14) {
-                        ForEach(model.items, id: \.id) { item in
+                        ForEach(displayedItems, id: \.id) { item in
                             CatalogCard(item: item) { openDetails(item) }
                                 .onAppear { prefetchIfNeeded(item) }
                         }
                     }
                 case .dense:
                     LazyVGrid(columns: columns(count: 8), alignment: .leading, spacing: 10) {
-                        ForEach(model.items, id: \.id) { item in
+                        ForEach(displayedItems, id: \.id) { item in
                             DensePosterCard(item: item) { openDetails(item) }
                                 .onAppear { prefetchIfNeeded(item) }
                         }
                     }
                 case .rows:
                     LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(model.items, id: \.id) { item in
+                        ForEach(displayedItems, id: \.id) { item in
                             CatalogRow(item: item) { openDetails(item) }
                                 .onAppear { prefetchIfNeeded(item) }
                         }

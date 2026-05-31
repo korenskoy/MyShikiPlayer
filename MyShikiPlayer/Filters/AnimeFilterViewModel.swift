@@ -31,6 +31,10 @@ final class AnimeFilterViewModel: ObservableObject {
     @Published var selectedStudioIds: Set<Int>
     @Published var selectedMyListStatuses: Set<MyListStatus>
     @Published var selectedOrder: AnimeOrder?
+    /// Sort direction. `false` — descending (default; matches Shikimori
+    /// REST/GraphQL natural order for ranked/popularity/aired_on); `true` —
+    /// client-side reversed view. Persists per scope.
+    @Published var selectedAscending: Bool
     @Published var licensedOnly: Bool
     @Published var excludeCensored: Bool
     @Published var minScore: Int?
@@ -53,6 +57,7 @@ final class AnimeFilterViewModel: ObservableObject {
         selectedStudioIds = persisted.studioIds
         selectedMyListStatuses = persisted.mylistStatuses
         selectedOrder = persisted.order
+        selectedAscending = persisted.ascending
         licensedOnly = persisted.licensedOnly
         excludeCensored = persisted.excludeCensored
         minScore = persisted.minScore
@@ -167,6 +172,7 @@ final class AnimeFilterViewModel: ObservableObject {
         selectedStudioIds = []
         selectedMyListStatuses = []
         selectedOrder = nil
+        selectedAscending = false
         licensedOnly = false
         excludeCensored = false
         minScore = nil
@@ -251,6 +257,7 @@ final class AnimeFilterViewModel: ObservableObject {
             studioIds: Array(selectedStudioIds),
             mylistStatuses: selectedMyListStatuses.map(\.rawValue),
             order: selectedOrder?.rawValue,
+            ascending: selectedAscending,
             licensedOnly: licensedOnly,
             excludeCensored: excludeCensored,
             minScore: minScore,
@@ -277,6 +284,7 @@ final class AnimeFilterViewModel: ObservableObject {
             studioIds: Set(snap.studioIds),
             mylistStatuses: Set(snap.mylistStatuses.compactMap(MyListStatus.init(rawValue:))),
             order: snap.order.flatMap(AnimeOrder.init(rawValue:)),
+            ascending: snap.ascending ?? false,
             licensedOnly: snap.licensedOnly,
             excludeCensored: snap.excludeCensored,
             minScore: snap.minScore,
@@ -296,6 +304,7 @@ final class AnimeFilterViewModel: ObservableObject {
         var studioIds: Set<Int> = []
         var mylistStatuses: Set<MyListStatus> = []
         var order: AnimeOrder? = nil
+        var ascending: Bool = false
         var licensedOnly: Bool = false
         var excludeCensored: Bool = false
         var minScore: Int? = nil
@@ -315,6 +324,8 @@ final class AnimeFilterViewModel: ObservableObject {
         let studioIds: [Int]
         let mylistStatuses: [String]
         let order: String?
+        /// Optional for backwards compatibility — older snapshots default to desc.
+        let ascending: Bool?
         let licensedOnly: Bool
         let excludeCensored: Bool
         let minScore: Int?

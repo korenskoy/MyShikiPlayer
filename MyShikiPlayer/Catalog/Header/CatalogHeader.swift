@@ -14,6 +14,7 @@ struct CatalogHeader: View {
 
     let totalCount: Int
     @Binding var order: AnimeOrder?
+    @Binding var ascending: Bool
     @Binding var variant: CatalogVariant
     let activeFacetLabels: [String]
     let onResetFilters: () -> Void
@@ -42,21 +43,11 @@ struct CatalogHeader: View {
             Spacer(minLength: 12)
 
             HStack(spacing: 8) {
-                Text("Сортировка:")
-                    .font(.dsBody(12))
-                    .foregroundStyle(theme.fg2)
-
-                ForEach(orderOptions, id: \.self) { opt in
-                    DSChip(
-                        title: orderLabel(opt),
-                        isActive: order == opt,
-                        size: .small,
-                        mono: true,
-                        action: {
-                            order = (order == opt) ? nil : opt
-                        }
-                    )
-                }
+                CatalogSortChips(
+                    order: $order,
+                    ascending: $ascending,
+                    options: orderOptions
+                )
 
                 Rectangle()
                     .fill(theme.line)
@@ -120,12 +111,4 @@ struct CatalogHeader: View {
         .buttonStyle(.plain)
     }
 
-    private func orderLabel(_ order: AnimeOrder) -> String {
-        switch order {
-        case .ranked:     return "по рейтингу ↓"
-        case .airedOn:    return "по году"
-        case .popularity: return "по популярности"
-        default:          return order.displayName.lowercased()
-        }
-    }
 }

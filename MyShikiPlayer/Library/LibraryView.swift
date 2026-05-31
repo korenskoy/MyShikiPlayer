@@ -2,12 +2,14 @@
 //  LibraryView.swift
 //  MyShikiPlayer
 //
-//  New "My lists" screen. Left filter column (from Catalog), main area
-//  with kicker + heading + sorting + variant toggle + status tab bar +
-//  card grid (A/B/C).
+//  "Мои списки" screen. Left filter column (shared with Catalog), main area
+//  with kicker + heading + the same sort chips Catalog has + variant toggle
+//  + status tab bar + card grid (A/B/C).
 //
 //  Uses the existing AnimeListViewModel — its logic (paginated user_rates
-//  loading, caching, GraphQL enrichment) is left intact.
+//  loading, caching, GraphQL enrichment) is left intact. Sort state lives on
+//  the shared AnimeFilterViewModel (`selectedOrder` + `selectedAscending`)
+//  so it persists per scope alongside the rest of the filter set.
 //
 
 import SwiftUI
@@ -24,10 +26,29 @@ struct LibraryView: View {
 
     let onOpenDetails: (Int) -> Void
 
+    /// Sort options Library supports. `.popularity` is intentionally absent —
+    /// Shikimori GraphQL does not expose a per-item popularity field, so the
+    /// chip would have no data to act on.
+    private let sortOptions: [AnimeOrder] = [.ranked, .airedOn]
+
     private var variant: Binding<CatalogVariant> {
         Binding(
             get: { CatalogVariant(rawValue: variantRaw) ?? .grid },
             set: { variantRaw = $0.rawValue }
+        )
+    }
+
+    private var order: Binding<AnimeOrder?> {
+        Binding(
+            get: { filter.selectedOrder },
+            set: { filter.selectedOrder = $0 }
+        )
+    }
+
+    private var ascending: Binding<Bool> {
+        Binding(
+            get: { filter.selectedAscending },
+            set: { filter.selectedAscending = $0 }
         )
     }
 
@@ -93,11 +114,24 @@ struct LibraryView: View {
                     .font(.dsTitle(24))
                     .foregroundStyle(theme.fg3)
             }
-            Spacer()
-            if model.isLoading {
-                ProgressView().controlSize(.small)
+            Spacer(minLength: 12)
+            HStack(spacing: 8) {
+                if model.isLoading {
+                    ProgressView().controlSize(.small)
+                }
+                CatalogSortChips(
+                    order: order,
+                    ascending: ascending,
+                    options: sortOptions
+                )
+
+                Rectangle()
+                    .fill(theme.line)
+                    .frame(width: 1, height: 20)
+                    .padding(.horizontal, 4)
+
+                CatalogVariantToggle(selection: variant)
             }
-            CatalogVariantToggle(selection: variant)
         }
     }
 
@@ -153,9 +187,54 @@ struct LibraryView: View {
         return items
     }
 
+    /// Applies the active sort order and direction on top of `filteredItems`.
+    /// Items missing the chosen field (no global rating, non-numeric year)
+    /// are pushed to the end regardless of direction — they're absent values,
+    /// not "low" ones.
+    private var sortedItems: [AnimeListViewModel.Item] {
+        let items = filteredItems
+        let asc = filter.selectedAscending
+
+        func compare<T: Comparable>(_ l: T, _ r: T) -> Bool {
+            asc ? l < r : l > r
+        }
+
+        switch filter.selectedOrder {
+        case .ranked:
+            return items.sorted { lhs, rhs in
+                switch (lhs.animeScore, rhs.animeScore) {
+                case let (l?, r?):
+                    if l != r { return compare(l, r) }
+                    return lhs.updatedAt > rhs.updatedAt
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none): return lhs.updatedAt > rhs.updatedAt
+                }
+            }
+        case .airedOn:
+            return items.sorted { lhs, rhs in
+                let l = Int(lhs.year)
+                let r = Int(rhs.year)
+                switch (l, r) {
+                case let (l?, r?):
+                    if l != r { return compare(l, r) }
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                case (.some, .none): return true
+                case (.none, .some): return false
+                case (.none, .none):
+                    return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+                }
+            }
+        default:
+            // No explicit order picked — fall back to the natural "recently
+            // updated" order that LibraryLoader produces.
+            return items.sorted { compare($0.updatedAt, $1.updatedAt) }
+        }
+    }
+
     @ViewBuilder
     private var grid: some View {
-        let items = filteredItems
+        let items = sortedItems
         ScrollView(showsIndicators: true) {
             switch variant.wrappedValue {
             case .grid:
