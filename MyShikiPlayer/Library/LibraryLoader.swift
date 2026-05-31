@@ -64,7 +64,8 @@ struct LibraryLoader {
                 posterURL: anime.flatMap(Self.posterURL(from:)),
                 updatedAt: rate.updatedAt,
                 animeStatus: anime?.status?.lowercased(),
-                animeSeason: anime?.season
+                animeSeason: anime?.season,
+                animeScore: anime?.score
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }

@@ -27,6 +27,8 @@ final class AnimeListViewModel: ObservableObject {
         let animeStatus: String?
         /// Raw Shikimori season string (e.g. "summer_2026", "2023_2024").
         let animeSeason: String?
+        /// Global Shikimori score (0…10), nil when the title has no rating yet.
+        let animeScore: Double?
     }
 
     private struct ListCacheEnvelope: Codable {
@@ -35,8 +37,10 @@ final class AnimeListViewModel: ObservableObject {
     }
 
     private enum CacheConfig {
-        // Bumped to v2 when animeStatus/animeSeason fields were added to Item.
-        static let keyPrefix = "animeList.cache.v2."
+        // v4 invalidates v3 caches whose `animeScore` was never populated:
+        // the dynamic GraphQL query used by LibraryLoader did not select the
+        // `score` field, so every cached Item had animeScore == nil.
+        static let keyPrefix = "animeList.cache.v4."
         static let ttl: TimeInterval = 15 * 60
     }
 
@@ -140,7 +144,8 @@ final class AnimeListViewModel: ObservableObject {
                     posterURL: old.posterURL,
                     updatedAt: payload.updatedAt ?? Date(),
                     animeStatus: old.animeStatus,
-                    animeSeason: old.animeSeason
+                    animeSeason: old.animeSeason,
+                    animeScore: old.animeScore
                 )
             }
             self.invalidateListCache()
@@ -286,7 +291,8 @@ final class AnimeListViewModel: ObservableObject {
                     posterURL: allItems[index].posterURL,
                     updatedAt: updated.updatedAt,
                     animeStatus: allItems[index].animeStatus,
-                    animeSeason: allItems[index].animeSeason
+                    animeSeason: allItems[index].animeSeason,
+                    animeScore: allItems[index].animeScore
                 )
             }
             invalidateListCache()

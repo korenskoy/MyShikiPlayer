@@ -379,6 +379,7 @@ final class ShikimoriGraphQLClient: Sendable {
             kind
             status
             season
+            score
             airedOn { date }
             releasedOn { date }
             poster { originalUrl mainUrl }

@@ -24,7 +24,10 @@ extension AnimeListViewModel.Item {
             ),
             url: nil,
             kind: kind.lowercased(),
-            score: score > 0 ? "\(score)" : nil,
+            // Show the global Shikimori rating on poster cards, not the
+            // user's personal score. `CatalogPoster` and `CatalogRow` already
+            // strip "0.0"/"0" placeholders, so emitting them is safe.
+            score: animeScore.map { String(format: "%.2f", $0) },
             status: animeStatus,
             episodes: nil,
             episodesAired: nil,
