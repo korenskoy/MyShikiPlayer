@@ -31,7 +31,7 @@ extension AnimeListViewModel.Item {
             status: animeStatus,
             episodes: nil,
             episodesAired: nil,
-            airedOn: nil,
+            airedOn: Int(year) != nil ? "\(year)-01-01" : nil,
             releasedOn: nil
         )
     }
