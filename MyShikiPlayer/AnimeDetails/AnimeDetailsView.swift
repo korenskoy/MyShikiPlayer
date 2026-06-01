@@ -23,6 +23,9 @@ struct AnimeDetailsView: View {
     let onOpenAnime: (AnimeListItem) -> Void
     let onOpenAnimeId: ((Int) -> Void)?
     let onTitleResolved: ((Int, String) -> Void)?
+    /// Opens the title's Shikimori discussion topic inside the in-app Social
+    /// screen. Nil when the host does not wire navigation (e.g. previews).
+    let onOpenTopic: ((Int, String?) -> Void)?
 
     init(
         auth: ShikimoriAuthController,
@@ -31,13 +34,15 @@ struct AnimeDetailsView: View {
         onClose: @escaping () -> Void,
         onOpenAnime: @escaping (AnimeListItem) -> Void,
         onOpenAnimeId: ((Int) -> Void)? = nil,
-        onTitleResolved: ((Int, String) -> Void)? = nil
+        onTitleResolved: ((Int, String) -> Void)? = nil,
+        onOpenTopic: ((Int, String?) -> Void)? = nil
     ) {
         self.auth = auth
         self.onClose = onClose
         self.onOpenAnime = onOpenAnime
         self.onOpenAnimeId = onOpenAnimeId
         self.onTitleResolved = onTitleResolved
+        self.onOpenTopic = onOpenTopic
         _vm = StateObject(wrappedValue: AnimeDetailsViewModel(
             shikimoriId: shikimoriId,
             configuration: configuration,
@@ -64,6 +69,7 @@ struct AnimeDetailsView: View {
                         onToggleFavorite: { Task { await vm.toggleFavorite() } },
                         onOpenOnShikimori: openOnShikimori,
                         onCopyLink: copyLinkToClipboard,
+                        onOpenTopic: openDiscussionTopic,
                         statusButton: AnyView(statusButton),
                         studioButton: AnyView(studioButton),
                         linkCopiedFlash: $linkCopiedFlash
@@ -313,6 +319,29 @@ struct AnimeDetailsView: View {
     private func openOnShikimori() {
         guard let url = shikimoriWebURL else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    /// Tap on the chat-bubbles icon → hand the topic over to AppShell, which
+    /// switches to the Social branch and restores the topic detail screen.
+    /// The button itself is hidden when `topicId == nil`, so we only no-op
+    /// for the rare race where it briefly stays mounted after detail reload.
+    private func openDiscussionTopic() {
+        NetworkLogStore.shared.logUIEvent(
+            "details_open_topic_tap anime_id=\(vm.shikimoriId) topic_id=\(vm.detail?.topicId.map(String.init) ?? "nil") has_callback=\(onOpenTopic != nil)"
+        )
+        guard let topicId = vm.detail?.topicId else {
+            NetworkLogStore.shared.logUIEvent(
+                "details_open_topic_skip reason=no_topic_id anime_id=\(vm.shikimoriId)"
+            )
+            return
+        }
+        guard let onOpenTopic else {
+            NetworkLogStore.shared.logUIEvent(
+                "details_open_topic_skip reason=no_callback anime_id=\(vm.shikimoriId) topic_id=\(topicId)"
+            )
+            return
+        }
+        onOpenTopic(topicId, vm.title)
     }
 
     private func copyLinkToClipboard() {

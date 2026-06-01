@@ -17,6 +17,7 @@ struct DetailsHero: View {
     let onToggleFavorite: () -> Void
     let onOpenOnShikimori: () -> Void
     let onCopyLink: () -> Void
+    let onOpenTopic: () -> Void
     let statusButton: AnyView
     let studioButton: AnyView
     @Binding var linkCopiedFlash: Bool
@@ -214,6 +215,19 @@ struct DetailsHero: View {
                 help: "Скопировать ссылку на тайтл",
                 action: onCopyLink
             )
+
+            // Title's discussion topic on Shikimori — opens our in-app
+            // Лента / Обсуждение screen. Hidden when the title has no topic
+            // (some unreleased / pre-aired entries skip topic creation).
+            if vm.detail?.topicId != nil {
+                iconButton(
+                    name: .bubbles,
+                    active: false,
+                    disabled: false,
+                    help: "Открыть обсуждение",
+                    action: onOpenTopic
+                )
+            }
 
             iconButton(name: .safari, active: false, disabled: false, help: "Открыть на Shikimori в браузере", action: onOpenOnShikimori)
         }

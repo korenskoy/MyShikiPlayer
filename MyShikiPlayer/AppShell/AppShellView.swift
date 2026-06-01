@@ -60,7 +60,8 @@ struct AppShellView: View {
                             },
                             onTitleResolved: { resolvedId, title in
                                 history.updateDetailTitle(shikimoriId: resolvedId, title: title)
-                            }
+                            },
+                            onOpenTopic: openSocialTopic(id:title:)
                         )
                         // id-trigger: when id changes (opening a "Related" item)
                         // we recreate the View — otherwise the @StateObject VM
@@ -146,6 +147,34 @@ struct AppShellView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             searchOpenedDetailId = nil
         }
+    }
+
+    /// Bridge for the "Открыть обсуждение" chat-bubbles button on the
+    /// AnimeDetails hero: leave the detail overlay, switch to the Social
+    /// branch, and hand the topic id (+ best-known title for breadcrumbs)
+    /// to `SocialNavigationState`. Pushed onto the browser-style history
+    /// so back/forward step through it like any other navigation entry.
+    private func openSocialTopic(id: Int, title: String?) {
+        NetworkLogStore.shared.logUIEvent(
+            "shell_open_social_topic_begin id=\(id)"
+            + " title=\(title ?? "nil")"
+            + " was_branch=\(navigation.selectedBranch)"
+            + " was_detail_id=\(searchOpenedDetailId.map(String.init) ?? "nil")"
+            + " was_topic_open=\(socialNav.isTopicOpen)"
+        )
+        searchOpenedDetailId = nil
+        navigation.selectedBranch = .social
+        socialNav.restoreTopic(id: id, title: title)
+        NetworkLogStore.shared.logUIEvent(
+            "shell_open_social_topic_state branch=\(navigation.selectedBranch)"
+            + " topic_open=\(socialNav.isTopicOpen)"
+            + " opened_topic_id=\(socialNav.openedTopicId.map(String.init) ?? "nil")"
+        )
+        guard !history.isNavigating else {
+            NetworkLogStore.shared.logUIEvent("shell_open_social_topic_skip_push reason=is_navigating")
+            return
+        }
+        history.push(.socialTopic(id: id, title: title))
     }
 
     /// Top-bar nav-tap handler. Always exits the detail overlay first — when
