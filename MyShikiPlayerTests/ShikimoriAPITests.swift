@@ -100,7 +100,8 @@ struct ShikimoriHTTPTests {
             )!
             return (resp, Data())
         }
-        let client = ShikimoriHTTPClient(configuration: config, session: session, minRequestInterval: 0)
+        let throttler = RequestThrottler(minInterval: 0, maxRequestsInWindow: .max)
+        let client = ShikimoriHTTPClient(configuration: config, session: session, throttler: throttler)
         let url = URL(string: "https://example.test/api/ping")!
         let req = URLRequest(url: url)
         _ = try await client.data(for: req)

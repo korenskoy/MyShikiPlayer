@@ -11,24 +11,66 @@ protocol ShikimoriHTTPClientProtocol: Sendable {
 }
 
 actor RequestThrottler {
-    private var lastRequest: Date = .distantPast
-    private let minInterval: TimeInterval
+    /// Process-wide throttler sized to Shikimori's documented limits
+    /// (5 rps + 90 rpm). Every `ShikimoriHTTPClient` shares this instance
+    /// by default so REST and GraphQL calls combined respect a single quota
+    /// — without it each client gated its own 5 rps in isolation.
+    static let shared = RequestThrottler(
+        minInterval: 0.2,
+        windowDuration: 60,
+        maxRequestsInWindow: 90
+    )
 
-    init(minInterval: TimeInterval = 0.2) {
+    private var lastRequest: Date = .distantPast
+    /// Timestamps of grants that still fall inside the rolling
+    /// `windowDuration`. Expired entries are dropped on each call.
+    private var recentGrants: [Date] = []
+    private let minInterval: TimeInterval
+    private let windowDuration: TimeInterval
+    private let maxRequestsInWindow: Int
+
+    init(
+        minInterval: TimeInterval = 0.2,
+        windowDuration: TimeInterval = 60,
+        maxRequestsInWindow: Int = 90
+    ) {
         self.minInterval = minInterval
+        self.windowDuration = windowDuration
+        self.maxRequestsInWindow = maxRequestsInWindow
     }
 
     func waitTurn() async {
+        // Stage 1 — per-second minimum interval.
         let now = Date()
         let elapsed = now.timeIntervalSince(lastRequest)
         if elapsed < minInterval {
             let ns = UInt64((minInterval - elapsed) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: ns)
         }
+
+        // Stage 2 — rolling window cap. Drop expired stamps, then if the
+        // window is full sleep until the oldest stamp falls out. Re-evaluate
+        // in a loop because other tasks waiting on this actor may have
+        // grabbed slots while we slept.
+        while true {
+            let windowStart = Date().addingTimeInterval(-windowDuration)
+            recentGrants.removeAll { $0 < windowStart }
+            if recentGrants.count < maxRequestsInWindow { break }
+            guard let oldest = recentGrants.first else { break }
+            let wakeup = oldest.addingTimeInterval(windowDuration)
+            let toSleep = wakeup.timeIntervalSince(Date())
+            guard toSleep > 0 else { continue }
+            // +1ms cushion so the next loop iteration sees the stamp as
+            // strictly expired (avoids tight thrash on clock granularity).
+            try? await Task.sleep(nanoseconds: UInt64(toSleep * 1_000_000_000) + 1_000_000)
+        }
+
         // Stamp after any sleep completed so `durationFromIssued` (used by
         // network-log diagnostics) tracks the moment the request actually
         // left the gate, not when it was queued.
-        lastRequest = Date()
+        let stamp = Date()
+        lastRequest = stamp
+        recentGrants.append(stamp)
     }
 }
 
@@ -41,11 +83,11 @@ final class ShikimoriHTTPClient: ShikimoriHTTPClientProtocol, Sendable {
     init(
         configuration: ShikimoriConfiguration,
         session: URLSession = .shared,
-        minRequestInterval: TimeInterval = 0.2
+        throttler: RequestThrottler = .shared
     ) {
         self.configuration = configuration
         self.session = session
-        self.throttler = RequestThrottler(minInterval: minRequestInterval)
+        self.throttler = throttler
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
