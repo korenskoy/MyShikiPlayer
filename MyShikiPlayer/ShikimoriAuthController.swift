@@ -26,6 +26,9 @@ final class ShikimoriAuthController: ObservableObject {
     private let keychain = ShikimoriOAuthCredentialStore()
     private var oauthCodeContinuation: CheckedContinuation<String, Error>?
     private var didTryRestoreSession = false
+    /// Holds the in-flight token refresh so a burst of live 401s collapses into
+    /// a single `/oauth/token` call instead of one per failed request.
+    private var refreshTask: Task<RefreshOutcome, Never>?
 
     init() {
         // `fromMainBundle()` consults `ShikimoriHostsStore` overrides, so
@@ -34,6 +37,17 @@ final class ShikimoriAuthController: ObservableObject {
         // sign-in / restoreSession / signOut transition).
         configuration = ShikimoriConfiguration.fromMainBundle()
         isConfigured = configuration.map { !$0.clientId.isEmpty && !$0.clientSecret.isEmpty } ?? false
+        // A 401 can arrive on any thread (it's posted from the nonisolated HTTP
+        // client); hop onto the MainActor to handle it. The token is left in the
+        // closure's `[weak self]` — this controller lives for the whole app, so
+        // we don't bother removing the observer.
+        NotificationCenter.default.addObserver(
+            forName: .shikimoriUnauthorized,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.handleUnauthorized() }
+        }
     }
 
     /// Loads the token from Keychain; refreshes and runs whoami if needed.
@@ -121,11 +135,76 @@ final class ShikimoriAuthController: ObservableObject {
 
     /// 401 / 403 — credentials rejected. Used to differentiate auth failures
     /// from transient errors that must NOT trigger a session reset.
-    private static func isAuthRejection(_ error: ShikimoriAPIError) -> Bool {
+    nonisolated private static func isAuthRejection(_ error: ShikimoriAPIError) -> Bool {
         if case .httpStatus(let code, _) = error, code == 401 || code == 403 {
             return true
         }
         return false
+    }
+
+    enum RefreshOutcome: Equatable { case success, authRejected, transient }
+
+    /// Reaction to a live 401 from any API call (the OAuth endpoint runs on its
+    /// own session and never reaches here). Try to extend the session quietly;
+    /// only ask the user to re-auth if the refresh token is itself dead or
+    /// missing. A transient network failure leaves the session intact — see
+    /// `feedback_player_resilience`.
+    func handleUnauthorized() async {
+        guard isLoggedIn, !requiresReauth, !isRestoringSession else { return }
+        // Single-flight: join the running refresh instead of starting another.
+        if let inFlight = refreshTask {
+            _ = await inFlight.value
+            return
+        }
+        let task = Task { await performRefresh() }
+        refreshTask = task
+        let outcome = await task.value
+        refreshTask = nil
+        switch outcome {
+        case .success:
+            NetworkLogStore.shared.logOAuthEvent("live_401_refresh_success")
+        case .authRejected:
+            NetworkLogStore.shared.logOAuthEvent("live_401_refresh_rejected requires_reauth")
+            markRequiresReauth(reason: "live_401")
+        case .transient:
+            NetworkLogStore.shared.logOAuthEvent("live_401_refresh_transient keep_session")
+        }
+    }
+
+    /// Force-refreshes the access token from the stored refresh token and
+    /// updates `configuration` so the next request carries the new Bearer.
+    /// Unlike `restoreSession`, it ignores `shouldRefresh` — the server already
+    /// rejected the current token, so its local expiry is moot.
+    private func performRefresh() async -> RefreshOutcome {
+        guard let config = configuration, isConfigured else { return .transient }
+        let stored: OAuthCredential?
+        do {
+            stored = try keychain.load()
+        } catch {
+            return .transient // keychain read glitch — not an auth rejection
+        }
+        guard let stored, let refresh = stored.refreshToken, !refresh.isEmpty else {
+            return .authRejected // no refresh token → only re-auth can recover
+        }
+        do {
+            let response = try await OAuthTokenClient(configuration: config).refresh(refresh)
+            let updated = OAuthCredential(response: response)
+            try keychain.save(updated)
+            configuration = config.withAccessToken(updated.accessToken)
+            return .success
+        } catch {
+            return Self.classifyRefreshError(error)
+        }
+    }
+
+    /// Maps a refresh failure onto the policy decision: a 401/403 means the
+    /// refresh token is dead (→ re-auth); anything else (network blip, banned
+    /// host, 5xx) is transient and must NOT reset the session.
+    nonisolated static func classifyRefreshError(_ error: Error) -> RefreshOutcome {
+        if let apiError = error as? ShikimoriAPIError, isAuthRejection(apiError) {
+            return .authRejected
+        }
+        return .transient
     }
 
     func signIn() async {

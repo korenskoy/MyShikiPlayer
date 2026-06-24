@@ -113,6 +113,14 @@ final class ShikimoriHTTPClient: ShikimoriHTTPClientProtocol, Sendable {
                 responsePreview: NetworkLogStore.previewFromResponseData(data, maxBytes: 1024),
                 errorDescription: nil
             )
+            // A live 401 means the access token went stale mid-session.
+            // `ShikimoriAuthController` listens and tries a token refresh before
+            // surfacing re-auth. OAuth `/oauth/token` calls use their own
+            // session and never reach this client, so a failed refresh can't
+            // re-trigger this — no recursion.
+            if http?.statusCode == 401 {
+                NotificationCenter.default.post(name: .shikimoriUnauthorized, object: nil)
+            }
             return (data, response)
         } catch {
             NetworkLogStore.shared.log(
@@ -169,4 +177,11 @@ final class ShikimoriHTTPClient: ShikimoriHTTPClientProtocol, Sendable {
             )
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted by `ShikimoriHTTPClient` on any 401 from the Shikimori API.
+    /// `ShikimoriAuthController` observes it to refresh the access token, or
+    /// surface re-auth if the refresh token is itself rejected/missing.
+    static let shikimoriUnauthorized = Notification.Name("shikimoriUnauthorized")
 }
