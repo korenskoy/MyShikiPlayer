@@ -65,20 +65,20 @@ struct PlayerView: View {
             PlayerHostWindowObserver(
                 onWindow: { window in
                     session.engine.setHostWindow(window)
-                    applyAlwaysOnTop(alwaysOnTop, to: window)
+                    syncWindowLevel()
                 },
                 onKeyStatus: { playerWindowIsKey = $0 }
             )
         )
-        .onChange(of: alwaysOnTop) { _, on in
-            applyAlwaysOnTop(on, to: session.engine.playerHostWindow)
+        .onChange(of: alwaysOnTop) { _, _ in
+            syncWindowLevel()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
             // macOS forces .normal level when entering fullscreen and does
             // NOT restore custom levels on exit — reapply the user's choice.
             guard let window = note.object as? NSWindow,
                   window === session.engine.playerHostWindow else { return }
-            applyAlwaysOnTop(alwaysOnTop, to: window)
+            syncWindowLevel()
         }
         .onAppear {
             appIsActive = NSApp.isActive
@@ -103,6 +103,8 @@ struct PlayerView: View {
             }
         }
         .onChange(of: session.engine.isPlaying) { _, isPlaying in
+            // Pin only while playing — pausing drops the window back to .normal.
+            syncWindowLevel()
             if isPlaying {
                 scheduleAutoHideIfNeeded()
             } else {
@@ -206,11 +208,13 @@ struct PlayerView: View {
         autoHideTask = nil
     }
 
-    /// Pin/unpin the player window above other apps.
+    /// Pin the player window above other apps — but only while it is actually
+    /// playing. `player.alwaysOnTop` expresses intent; pausing drops the window
+    /// back to `.normal` so an idle player stops covering other apps.
     /// Uses `.floating` (not `.modalPanel` / `.popUpMenu`) so the window can
     /// still be moved, resized, focus other windows, and enter fullscreen.
-    private func applyAlwaysOnTop(_ on: Bool, to window: NSWindow?) {
-        guard let window else { return }
-        window.level = on ? .floating : .normal
+    private func syncWindowLevel() {
+        let shouldFloat = alwaysOnTop && session.engine.isPlaying
+        session.engine.playerHostWindow?.level = shouldFloat ? .floating : .normal
     }
 }
