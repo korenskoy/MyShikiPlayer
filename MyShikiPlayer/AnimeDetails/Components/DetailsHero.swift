@@ -146,7 +146,10 @@ struct DetailsHero: View {
             .font(.dsDisplay(56, weight: .heavy))
             .tracking(-1.5)
             .foregroundStyle(theme.fg)
-            .lineLimit(2)
+            // Long titles shrink to fit (down to ~28pt) and wrap up to 3 lines
+            // instead of truncating — the full name always stays readable.
+            .lineLimit(3)
+            .minimumScaleFactor(0.5)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: 800, alignment: .leading)
     }
