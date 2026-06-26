@@ -105,7 +105,7 @@ final class ShikimoriHTTPClient: ShikimoriHTTPClientProtocol, Sendable {
             // diagnostics are off (the common case) this is a function call
             // away from a no-op. No MainActor hop on the hot path.
             NetworkLogStore.shared.log(
-                method: req.httpMethod ?? "GET",
+                method: req.httpMethod ?? "-",
                 url: req.url,
                 statusCode: http?.statusCode,
                 duration: Date().timeIntervalSince(startedAt),
@@ -124,7 +124,7 @@ final class ShikimoriHTTPClient: ShikimoriHTTPClientProtocol, Sendable {
             return (data, response)
         } catch {
             NetworkLogStore.shared.log(
-                method: req.httpMethod ?? "GET",
+                method: req.httpMethod ?? "-",
                 url: req.url,
                 statusCode: nil,
                 duration: Date().timeIntervalSince(startedAt),

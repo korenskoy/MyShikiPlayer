@@ -17,6 +17,7 @@ struct ContentView: View {
     @EnvironmentObject private var shikimoriAuth: ShikimoriAuthController
     @StateObject private var networkLogs = NetworkLogStore.shared
     @StateObject private var updates = UpdateCheckService.shared
+    @StateObject private var redirectConsent = OAuthRedirectConsentCoordinator.shared
     @State private var isLogPanelExpanded = false
     @AppStorage("app.theme") private var themeId: String = AppTheme.autoOtakuId
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false
@@ -73,6 +74,18 @@ struct ContentView: View {
             Button("OK", role: .cancel) { shikimoriAuth.alertMessage = nil }
         } message: {
             Text(shikimoriAuth.alertMessage ?? "")
+        }
+        .sheet(item: Binding(
+            get: { redirectConsent.pending },
+            // Swipe-to-dismiss / programmatic close counts as a refusal.
+            set: { if $0 == nil { redirectConsent.deny() } }
+        )) { pending in
+            OAuthRedirectConsentView(
+                pending: pending,
+                onApprove: { redirectConsent.approve() },
+                onDeny: { redirectConsent.deny() }
+            )
+            .appTheme(theme)
         }
     }
 
