@@ -2,10 +2,12 @@
 // Defaults go first, then local Secrets.xcconfig can override.
 SHIKIMORI_CLIENT_ID =
 SHIKIMORI_CLIENT_SECRET =
-// Default API host ($() prevents // starting an xcconfig comment)
-SHIKIMORI_BASE_URL = https:/$()/shikimori.me
-// OAuth token endpoint host (docs use shikimori.one)
-SHIKIMORI_OAUTH_BASE_URL = https:/$()/shikimori.one
+// Default API host ($() prevents // starting an xcconfig comment).
+// shikimori.io is the live host the docs use; .me 522s and .one 301-redirects
+// /oauth/token (the redirect strips POST→GET → 404).
+SHIKIMORI_BASE_URL = https:/$()/shikimori.io
+// OAuth token endpoint host (docs use shikimori.io)
+SHIKIMORI_OAUTH_BASE_URL = https:/$()/shikimori.io
 
 SHIKIMORI_REDIRECT_URI = myshikiplayer:/$()/oauth
 
