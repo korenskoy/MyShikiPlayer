@@ -61,14 +61,23 @@ struct AppTopBar: View {
     // MARK: - Navigation links
 
     private var navLinks: some View {
+        // ViewThatFits picks the labelled row while it fits, then falls back to
+        // icon-only (tooltip via .help) instead of wrapping the labels.
+        ViewThatFits(in: .horizontal) {
+            navLinksRow(showLabels: true)
+            navLinksRow(showLabels: false)
+        }
+    }
+
+    private func navLinksRow(showLabels: Bool) -> some View {
         HStack(spacing: 4) {
             ForEach(NavigationState.Branch.navBarCases) { branch in
-                navButton(for: branch)
+                navButton(for: branch, showLabel: showLabels)
             }
         }
     }
 
-    private func navButton(for branch: NavigationState.Branch) -> some View {
+    private func navButton(for branch: NavigationState.Branch, showLabel: Bool) -> some View {
         let isActive = navigation.selectedBranch == branch && !isDetailVisible
         return Button {
             onSelectBranch(branch)
@@ -77,8 +86,12 @@ struct AppTopBar: View {
                 if let icon = DSIconName(rawValue: branch.iconName) {
                     DSIcon(name: icon, size: 14, weight: .medium)
                 }
-                Text(branch.title)
-                    .font(.dsBody(13, weight: .medium))
+                if showLabel {
+                    Text(branch.title)
+                        .font(.dsBody(13, weight: .medium))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .foregroundStyle(isActive ? theme.fg : theme.fg2)
             .padding(.horizontal, 12)
@@ -90,6 +103,7 @@ struct AppTopBar: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .help(branch.title)
     }
 
     // MARK: - Search trigger
