@@ -83,6 +83,13 @@ final class PlayerEngine: ObservableObject {
         lastLoadError = nil
         autoplayPending = autoPlay
         pendingSeekSeconds = nil
+        // Reset progress immediately: until the new item is ready and the
+        // periodic observer ticks, currentTime/duration would otherwise hold
+        // the *previous* episode's end position. Anything reading them in that
+        // window (resume, watched-threshold reporting) would act on stale data
+        // — e.g. mark a just-opened next episode as fully watched.
+        currentTime = 0
+        duration = 0
         if autoPlay {
             tryFulfillPendingAutoplay()
         }
