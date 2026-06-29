@@ -24,7 +24,7 @@ struct DensePosterCard: View {
                     .foregroundStyle(theme.fg)
                     .lineLimit(1)
 
-                Text(yearText)
+                Text(metaText)
                     .font(.dsMono(9))
                     .foregroundStyle(theme.fg3)
                     .lineLimit(1)
@@ -40,7 +40,13 @@ struct DensePosterCard: View {
         return item.name
     }
 
-    private var yearText: String {
-        (item.releasedOn ?? item.airedOn).flatMap { $0.count >= 4 ? String($0.prefix(4)) : nil } ?? "—"
+    private var metaText: String {
+        var parts: [String] = []
+        if let year = (item.releasedOn ?? item.airedOn).flatMap({ $0.count >= 4 ? String($0.prefix(4)) : nil }) {
+            parts.append(year)
+        }
+        if let kind = item.kind?.uppercased(), !kind.isEmpty { parts.append(kind) }
+        if let status = item.statusShortLabel { parts.append(status) }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }
 }

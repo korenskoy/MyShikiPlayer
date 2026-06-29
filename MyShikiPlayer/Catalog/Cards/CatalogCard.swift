@@ -25,10 +25,12 @@ struct CatalogCard: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                Text(romaji)
-                    .font(.dsMono(10, weight: .medium))
-                    .foregroundStyle(theme.fg3)
-                    .lineLimit(1)
+                if let romaji {
+                    Text(romaji)
+                        .font(.dsMono(10, weight: .medium))
+                        .foregroundStyle(theme.fg3)
+                        .lineLimit(1)
+                }
 
                 Text(metaText)
                     .font(.dsBody(11))
@@ -46,13 +48,18 @@ struct CatalogCard: View {
         return item.name
     }
 
-    private var romaji: String { item.name }
+    // Hide the romanized line when it duplicates the title (e.g. Library items
+    // carry no separate russian/romaji, so both would render item.name).
+    private var romaji: String? {
+        item.name.caseInsensitiveCompare(displayTitle) == .orderedSame ? nil : item.name
+    }
 
     private var metaText: String {
         var parts: [String] = []
         if let year { parts.append(year) }
         if let kind = item.kind?.uppercased(), !kind.isEmpty { parts.append(kind) }
         if let ep = item.episodes, ep > 0 { parts.append("\(ep) эп") }
+        if let status = item.statusShortLabel { parts.append(status) }
         return parts.joined(separator: " · ")
     }
 

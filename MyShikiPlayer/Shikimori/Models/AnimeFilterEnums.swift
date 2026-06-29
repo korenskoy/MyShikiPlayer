@@ -51,6 +51,15 @@ enum AnimeStatus: String, CaseIterable, Sendable, Codable {
         case .latest: return "Недавно вышедшее"
         }
     }
+
+    // Compact label for meta lines on cards.
+    var shortLabel: String {
+        switch self {
+        case .anons: return "Анонс"
+        case .ongoing: return "Онгоинг"
+        case .released, .latest: return "Вышло"
+        }
+    }
 }
 
 enum AnimeRating: String, CaseIterable, Sendable, Codable {

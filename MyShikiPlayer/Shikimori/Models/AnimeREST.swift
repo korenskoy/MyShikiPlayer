@@ -27,6 +27,14 @@ struct AnimeListItem: Codable, Sendable, Equatable {
     let releasedOn: String?
 }
 
+extension AnimeListItem {
+    // Compact release-status label (Анонс / Онгоинг / Вышло) for card meta lines.
+    var statusShortLabel: String? {
+        guard let status, let parsed = AnimeStatus(rawValue: status) else { return nil }
+        return parsed.shortLabel
+    }
+}
+
 struct AnimeDetail: Codable, Sendable, Equatable {
     let id: Int
     let name: String

@@ -65,8 +65,9 @@ struct CatalogRow: View {
     private var romaji: String { item.name }
 
     private var seasonText: String {
-        guard let date = item.releasedOn ?? item.airedOn else { return "—" }
-        return String(date.prefix(4))
+        let year = (item.releasedOn ?? item.airedOn).map { String($0.prefix(4)) }
+        let parts = [year, item.statusShortLabel].compactMap { $0 }
+        return parts.isEmpty ? "—" : parts.joined(separator: " · ")
     }
 
     private var episodesText: String {
