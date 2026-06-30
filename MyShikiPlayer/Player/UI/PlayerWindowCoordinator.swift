@@ -44,6 +44,12 @@ final class PlayerWindowCoordinator: NSObject {
         window.styleMask.insert(.resizable)
         window.styleMask.insert(.miniaturizable)
         window.styleMask.insert(.closable)
+        // Cinema look: video fills under the title bar so there is no grey /
+        // accent strip at the top. Traffic-light buttons keep floating over the
+        // video; the overlay draws its own back/pin controls and title.
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()

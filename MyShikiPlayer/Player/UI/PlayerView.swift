@@ -50,6 +50,11 @@ struct PlayerView: View {
                 onRequestClose: requestClose,
                 onToggleAlwaysOnTop: { alwaysOnTop.toggle() }
             )
+            // Match videoLayer: extend under the (transparent) title bar so the
+            // top gradient hugs the window edge instead of leaving a bright video
+            // strip above it. PlayerTopBar adds its own top inset to clear the
+            // traffic-light buttons.
+            .ignoresSafeArea()
 
             if session.isPreparing || session.engine.isBuffering {
                 ProgressView()

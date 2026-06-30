@@ -71,8 +71,14 @@ struct PlayerTopBar: View {
             }
             .frame(width: 120)
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 18)
+        // Back button hugs the left edge; trailing stays aligned with the
+        // bottom controls (28). The top inset keeps the button below the
+        // floating macOS traffic-light buttons while the gradient fills to the
+        // very top.
+        .padding(.leading, 12)
+        .padding(.trailing, 28)
+        .padding(.top, 30)
+        .padding(.bottom, 18)
         .background(
             LinearGradient(
                 colors: [Color.black.opacity(0.65), Color.black.opacity(0)],
