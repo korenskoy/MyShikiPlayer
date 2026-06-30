@@ -13,7 +13,6 @@ struct PlayerSubtitleControls: View {
   @Environment(\.subtitlesAssembly) private var assemblyOrNil
 
   @State private var isPopoverShown = false
-  @State private var hasRequestedTracks = false
 
   private var store: SubtitleStore { assemblyOrNil!.store }
   private var settings: SubtitleSettings { assemblyOrNil!.settings }
@@ -96,7 +95,7 @@ struct PlayerSubtitleControls: View {
       loadingView
     } else if let errorMsg = store.errorMessage {
       errorView(errorMsg)
-    } else if hasRequestedTracks {
+    } else if store.didRequestTracks {
       unavailableView
     } else {
       findButton
@@ -132,7 +131,6 @@ struct PlayerSubtitleControls: View {
         .padding(.horizontal, 8)
       Button("Повторить") {
         Task {
-          hasRequestedTracks = true
           await store.requestTracks()
           autoSelectPreferredTrack()
         }
@@ -158,7 +156,6 @@ struct PlayerSubtitleControls: View {
   private var findButton: some View {
     Button {
       Task {
-        hasRequestedTracks = true
         await store.requestTracks()
         autoSelectPreferredTrack()
       }

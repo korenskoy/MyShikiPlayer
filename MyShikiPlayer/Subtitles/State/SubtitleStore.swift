@@ -39,6 +39,13 @@ final class SubtitleStore {
   private(set) var errorMessage: String? = nil
   private(set) var timeOffset: Double = 0
 
+  /// Whether a track search was attempted for the current context. Drives the
+  /// "find" vs "unavailable" UI. Lives here (not in the view) so that every
+  /// episode/translation switch — which all funnel through `reset(...)` —
+  /// clears it; a view-local flag would survive the switch and hide the
+  /// "Найти субтитры" button for the new episode.
+  private(set) var didRequestTracks: Bool = false
+
   private(set) var shikimoriId: Int? = nil
   private(set) var episode: Int? = nil
   private(set) var translationId: Int? = nil
@@ -82,6 +89,7 @@ final class SubtitleStore {
     isLoadingTracks = false
     isLoadingTrackContent = false
     errorMessage = nil
+    didRequestTracks = false
     lastCueIndex = 0
 
     if let sid = shikimoriId, let tid = translationId {
@@ -97,6 +105,7 @@ final class SubtitleStore {
   /// when tracks are already loaded for the current context (reset(...) clears them).
   func requestTracks() async {
     guard let sid = shikimoriId, let ep = episode else { return }
+    didRequestTracks = true
     if !availableTracks.isEmpty { return }
 
     isLoadingTracks = true
