@@ -29,6 +29,10 @@ final class PlayerEngine: ObservableObject {
     private var timeObserver: Any?
     private var cancellables: Set<AnyCancellable> = []
     private var itemCancellables: Set<AnyCancellable> = []
+    /// Power-management assertion held while video is playing so the Mac
+    /// doesn't dim the display or idle-sleep mid-episode. Releasing the token
+    /// (set to nil) ends the assertion, so pause/stop need no extra cleanup.
+    private var noSleepAssertion: NSObjectProtocol?
     private var autoplayPending = false
     private var pendingSeekSeconds: Double?
     private weak var hostWindow: NSWindow?
@@ -209,6 +213,18 @@ final class PlayerEngine: ObservableObject {
                 guard let self else { return }
                 self.isBuffering = status == .waitingToPlayAtSpecifiedRate
                 self.isPlaying = status == .playing
+            }
+            .store(in: &cancellables)
+
+        $isPlaying
+            .removeDuplicates()
+            .sink { [weak self] playing in
+                self?.noSleepAssertion = playing
+                    ? ProcessInfo.processInfo.beginActivity(
+                        options: .idleDisplaySleepDisabled,
+                        reason: "Video playback"
+                    )
+                    : nil
             }
             .store(in: &cancellables)
 
