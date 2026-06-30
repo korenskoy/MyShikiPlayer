@@ -124,6 +124,9 @@ struct PlayerView: View {
                 scheduleAutoHideIfNeeded()
             }
         }
+        .onChange(of: isOverlayVisible) { _, visible in
+            setTrafficLightsVisible(visible)
+        }
         .onDisappear {
             cancelAutoHide()
             subtitlesCancellable = nil
@@ -221,5 +224,27 @@ struct PlayerView: View {
     private func syncWindowLevel() {
         let shouldFloat = alwaysOnTop && session.engine.isPlaying
         session.engine.playerHostWindow?.level = shouldFloat ? .floating : .normal
+    }
+
+    /// In cinema mode the traffic-light buttons float over the video. Fade them
+    /// in/out together with the overlay so they don't sit on top of the picture
+    /// during playback.
+    private func setTrafficLightsVisible(_ visible: Bool) {
+        guard let window = session.engine.playerHostWindow else { return }
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
+            .compactMap { window.standardWindowButton($0) }
+        guard !buttons.isEmpty else { return }
+        if visible {
+            buttons.forEach { $0.isHidden = false }
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            buttons.forEach { $0.animator().alphaValue = visible ? 1 : 0 }
+        }, completionHandler: {
+            // Hide (not just alpha 0) so an invisible close button can't be
+            // clicked. Guard against a reveal that interrupted this fade-out:
+            // if a later show set alphaValue back to 1, leave them interactive.
+            buttons.forEach { if $0.alphaValue == 0 { $0.isHidden = true } }
+        })
     }
 }
