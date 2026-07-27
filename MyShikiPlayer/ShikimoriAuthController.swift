@@ -25,6 +25,10 @@ final class ShikimoriAuthController: ObservableObject {
 
     private let keychain = ShikimoriOAuthCredentialStore()
     private var oauthCodeContinuation: CheckedContinuation<String, Error>?
+    /// `state` + PKCE verifier of the sign-in currently waiting for a browser
+    /// callback. Lives and dies with `oauthCodeContinuation`: without a pending
+    /// run there is no state to match, so every callback is rejected.
+    private var pendingOAuthPKCE: OAuthPKCE?
     private var didTryRestoreSession = false
     /// Holds the in-flight token refresh so a burst of live 401s collapses into
     /// a single `/oauth/token` call instead of one per failed request.
@@ -218,16 +222,22 @@ final class ShikimoriAuthController: ObservableObject {
         }
         isAuthorizing = true
         isBusy = true
+        let pkce = OAuthPKCE.generate()
+        pendingOAuthPKCE = pkce
         defer {
             isBusy = false
             isAuthorizing = false
+            // Only drop our own run: a sign-in started while this one was
+            // unwinding has already installed its own state.
+            if pendingOAuthPKCE == pkce { pendingOAuthPKCE = nil }
         }
         do {
             NetworkLogStore.shared.logOAuthEvent("sign_in_started")
-            try ShikimoriOAuthBrowserLogin.openAuthorizePage(configuration: config)
+            try ShikimoriOAuthBrowserLogin.openAuthorizePage(configuration: config, pkce: pkce)
             let code = try await waitForOAuthCallbackCode()
             NetworkLogStore.shared.logOAuthEvent("callback_code_received")
-            let response = try await OAuthTokenClient(configuration: config).exchangeAuthorizationCode(code)
+            let response = try await OAuthTokenClient(configuration: config)
+                .exchangeAuthorizationCode(code, codeVerifier: pkce.codeVerifier)
             let newCredential = OAuthCredential(response: response)
             try keychain.save(newCredential)
             config = config.withAccessToken(newCredential.accessToken)
@@ -272,20 +282,24 @@ final class ShikimoriAuthController: ObservableObject {
 
     func handleOAuthCallback(_ callbackURL: URL) {
         guard let pending = oauthCodeContinuation else { return }
+        let expectedState = pendingOAuthPKCE?.state
         oauthCodeContinuation = nil
-        NetworkLogStore.shared.logOAuthEvent("callback_received \(NetworkLogStore.maskedURLString(callbackURL))")
+        pendingOAuthPKCE = nil
+        NetworkLogStore.shared.logOAuthEvent(
+            "callback_received \(ShikimoriOAuthBrowserLogin.maskedOAuthURLString(callbackURL))"
+        )
 
-        let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        if let err = items.first(where: { $0.name == "error" })?.value {
-            let desc = items.first(where: { $0.name == "error_description" })?.value ?? err
-            pending.resume(throwing: ShikimoriOAuthBrowserLoginError.oauthError(desc))
-            return
-        }
-        guard let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty else {
+        switch ShikimoriOAuthBrowserLogin.evaluateCallback(url: callbackURL, expectedState: expectedState) {
+        case .stateMismatch:
+            NetworkLogStore.shared.logOAuthEvent("callback_state_mismatch")
+            pending.resume(throwing: ShikimoriOAuthBrowserLoginError.stateMismatch)
+        case .failure(let message):
+            pending.resume(throwing: ShikimoriOAuthBrowserLoginError.oauthError(message))
+        case .missingCode:
             pending.resume(throwing: ShikimoriOAuthBrowserLoginError.missingAuthorizationCode)
-            return
+        case .code(let code):
+            pending.resume(returning: code)
         }
-        pending.resume(returning: code)
     }
 
     private func waitForOAuthCallbackCode(timeoutSeconds: TimeInterval = 180) async throws -> String {
@@ -296,6 +310,7 @@ final class ShikimoriAuthController: ObservableObject {
                 try? await Task.sleep(nanoseconds: timeoutNanos)
                 guard let pending = oauthCodeContinuation else { return }
                 oauthCodeContinuation = nil
+                pendingOAuthPKCE = nil
                 pending.resume(throwing: ShikimoriOAuthBrowserLoginError.callbackTimeout)
             }
         }
@@ -304,6 +319,7 @@ final class ShikimoriAuthController: ObservableObject {
     func cancelPendingSignIn() {
         guard let pending = oauthCodeContinuation else { return }
         oauthCodeContinuation = nil
+        pendingOAuthPKCE = nil
         NetworkLogStore.shared.logOAuthEvent("sign_in_cancelled")
         pending.resume(throwing: ShikimoriOAuthBrowserLoginError.userCancelled)
     }

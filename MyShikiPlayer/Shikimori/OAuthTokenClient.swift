@@ -30,12 +30,17 @@ final class OAuthTokenClient: Sendable {
         configuration.oauthBaseURL.appendingPathComponent("oauth/token")
     }
 
-    func exchangeAuthorizationCode(_ code: String) async throws -> OAuthTokenResponse {
+    /// `codeVerifier` completes the PKCE handshake opened by `code_challenge`
+    /// on the authorize URL. Shikimori runs Doorkeeper: if PKCE is not enabled
+    /// server-side the extra field is simply ignored, so sending it always is
+    /// safe. `client_secret` stays — the server rejects the request without it.
+    func exchangeAuthorizationCode(_ code: String, codeVerifier: String) async throws -> OAuthTokenResponse {
         try await postToken(fields: [
             "grant_type": "authorization_code",
             "client_id": configuration.clientId,
             "client_secret": configuration.clientSecret,
             "code": code,
+            "code_verifier": codeVerifier,
             "redirect_uri": configuration.redirectURI,
         ])
     }
@@ -87,8 +92,10 @@ final class OAuthTokenClient: Sendable {
 /// body (client_secret / code / refresh_token).
 enum OAuthRedirectPolicy {
     /// Known Shikimori mirror hosts the token endpoint legitimately bounces
-    /// between (e.g. `.one`/`.me` 301 to `.io`).
-    static let shikimoriMirrors = ["shikimori.io", "shikimori.one", "shikimori.me", "shikimori.org"]
+    /// between (e.g. `.one`/`.me` 301 to `.io`). Deliberately does NOT include
+    /// the user's Settings override: an arbitrary host typed into a text field
+    /// must go through the explicit consent prompt before it sees credentials.
+    static let shikimoriMirrors = ShikimoriHostsStore.knownMirrors
 
     /// True only when the redirect stays on HTTPS and targets either the same
     /// host or a known Shikimori mirror. Forwarding the body anywhere else

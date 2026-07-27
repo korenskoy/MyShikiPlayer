@@ -26,6 +26,42 @@ private var gqlDecoder: JSONDecoder {
     return d
 }
 
+/// Unthrottled: tests must not pay the 5 rps gate, nor eat slots from the
+/// process-wide rolling window shared with the rest of the suite.
+private func unthrottled() -> RequestThrottler {
+    RequestThrottler(minInterval: 0, maxRequestsInWindow: .max)
+}
+
+private func graphQLConfig() -> ShikimoriConfiguration {
+    ShikimoriConfiguration.testing(apiBaseURL: URL(string: "https://api.test")!)
+}
+
+/// Asserts `operation` fails with a `ShikimoriAPIError` matching `matching`.
+/// `#expect(throws:)` only checks the type — the mapping from transport
+/// failure to error case is exactly what these tests are about.
+private func expectShikimoriError(
+    _ description: String,
+    performing operation: () async throws -> Void,
+    matching: (ShikimoriAPIError) -> Bool
+) async {
+    do {
+        try await operation()
+        Issue.record("Expected \(description), got success")
+    } catch let error as ShikimoriAPIError {
+        #expect(matching(error), "Expected \(description), got \(error)")
+    } catch {
+        Issue.record("Expected \(description), got \(error)")
+    }
+}
+
+/// Collects the request bodies the mock saw, so a test can assert on the
+/// order in which query candidates were tried.
+private final class SentBodies: @unchecked Sendable {
+    private(set) var all: [String] = []
+
+    func append(_ body: String) { all.append(body) }
+}
+
 @Suite("Shikimori decoding")
 struct ShikimoriDecodingTests {
     @Test func animeDetailFromDocFixture() throws {
@@ -89,7 +125,7 @@ struct ShikimoriHTTPTests {
             accessToken: "secret_token"
         )
         let session = MockURLSession.make()
-        MockURLProtocol.handler = { req in
+        session.mshpMockHandler = { req in
             #expect(req.value(forHTTPHeaderField: "User-Agent") == config.userAgentAppName)
             #expect(req.value(forHTTPHeaderField: "Authorization") == "Bearer secret_token")
             let resp = HTTPURLResponse(
@@ -105,7 +141,7 @@ struct ShikimoriHTTPTests {
         let url = URL(string: "https://example.test/api/ping")!
         let req = URLRequest(url: url)
         _ = try await client.data(for: req)
-        MockURLProtocol.handler = nil
+        session.mshpMockHandler = nil
     }
 
     @Test func graphqlClientThrowsOnGraphQLErrors() async throws {
@@ -114,7 +150,7 @@ struct ShikimoriHTTPTests {
         )
         let session = MockURLSession.make()
         let errBody = try fixtureData(named: "graphql_errors")
-        MockURLProtocol.handler = { req in
+        session.mshpMockHandler = { req in
             #expect(req.httpMethod == "POST")
             #expect(req.url?.path == "/api/graphql")
             let resp = HTTPURLResponse(
@@ -125,11 +161,143 @@ struct ShikimoriHTTPTests {
             )!
             return (resp, errBody)
         }
-        let gql = ShikimoriGraphQLClient(configuration: cfg, session: session)
-        await #expect(throws: ShikimoriAPIError.self) {
-            try await gql.animes(search: "x", limit: 1)
+        let gql = ShikimoriGraphQLClient(configuration: cfg, session: session, throttler: unthrottled())
+        await expectShikimoriError("graphqlErrors") {
+            _ = try await gql.animes(search: "x", limit: 1)
+        } matching: { error in
+            guard case .graphqlErrors(let messages) = error else { return false }
+            return messages.first?.message.contains("bad") == true
         }
-        MockURLProtocol.handler = nil
+        session.mshpMockHandler = nil
+    }
+
+    @Test func graphqlClientDecodesSuccessfulEnvelope() async throws {
+        let session = MockURLSession.make()
+        let okBody = try fixtureData(named: "graphql_animes_ok")
+        session.mshpMockHandler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, okBody)
+        }
+        let gql = ShikimoriGraphQLClient(configuration: graphQLConfig(), session: session, throttler: unthrottled())
+        let animes = try await gql.animes(ids: [1], limit: 1)
+        #expect(animes.count == 1)
+        #expect(animes.first?.id == 1)
+        #expect(animes.first?.poster?.mainUrl?.contains("example.com") == true)
+        session.mshpMockHandler = nil
+    }
+
+    @Test func graphqlClientDecodesIntrospectionEnvelope() async throws {
+        let session = MockURLSession.make()
+        let body = Data(#"{"data":{"__type":{"enumValues":[{"name":"tv"},{"name":"movie"}]}}}"#.utf8)
+        session.mshpMockHandler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, body)
+        }
+        let gql = ShikimoriGraphQLClient(configuration: graphQLConfig(), session: session, throttler: unthrottled())
+        let values = try await gql.enumValues(typeName: "AnimeKindString")
+        #expect(values == ["tv", "movie"])
+        session.mshpMockHandler = nil
+    }
+
+    @Test func graphqlClientMapsMalformedBodyToDecodingError() async throws {
+        let session = MockURLSession.make()
+        session.mshpMockHandler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, Data(#"{"data": {"animes": ["#.utf8))
+        }
+        let gql = ShikimoriGraphQLClient(configuration: graphQLConfig(), session: session, throttler: unthrottled())
+        await expectShikimoriError("decoding") {
+            _ = try await gql.animes(search: "x", limit: 1)
+        } matching: { error in
+            if case .decoding = error { return true }
+            return false
+        }
+        session.mshpMockHandler = nil
+    }
+
+    @Test func graphqlClientMapsNon2xxToHTTPStatus() async throws {
+        let session = MockURLSession.make()
+        session.mshpMockHandler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 502, httpVersion: nil, headerFields: nil)!
+            return (resp, Data("<html><h1>Сервер временно недоступен</h1></html>".utf8))
+        }
+        let gql = ShikimoriGraphQLClient(configuration: graphQLConfig(), session: session, throttler: unthrottled())
+        // Goes through the raw-payload path (`animesByIdsDynamic` builds its
+        // body by hand) — the status guard has to apply there too.
+        await expectShikimoriError("httpStatus 502") {
+            _ = try await gql.animesByIdsDynamic(ids: [1], search: nil, kindRaw: nil, ratingRaw: nil, season: nil)
+        } matching: { error in
+            guard case .httpStatus(let code, let body) = error else { return false }
+            return code == 502 && body != nil
+        }
+        session.mshpMockHandler = nil
+    }
+
+    @Test func currentUserFallsBackToNextCandidateOnUnknownField() async throws {
+        let key = ShikimoriGraphQLClient.currentUserQueryDefaultsKey
+        let savedQuery = UserDefaults.standard.string(forKey: key)
+        // The unit-test bundle runs inside the app, so this key is the real
+        // app preference — put it back or a test run would pin the app to the
+        // fallback query.
+        defer {
+            if let savedQuery {
+                UserDefaults.standard.set(savedQuery, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        UserDefaults.standard.removeObject(forKey: key)
+
+        let session = MockURLSession.make()
+        let sent = SentBodies()
+        let unknownField = Data(#"{"errors":[{"message":"Field 'avatarUrl' doesn't exist on type 'User'"}]}"#.utf8)
+        let user = Data(#"{"data":{"currentUser":{"id":"42","nickname":"tester"}}}"#.utf8)
+        session.mshpMockHandler = { req in
+            let body = String(data: req.mshpInterceptedBody(), encoding: .utf8) ?? ""
+            sent.append(body)
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, body.contains("avatarUrl") ? unknownField : user)
+        }
+        let gql = ShikimoriGraphQLClient(configuration: graphQLConfig(), session: session, throttler: unthrottled())
+        let profile = try await gql.currentUser()
+        #expect(profile.id == 42)
+        #expect(profile.nickname == "tester")
+        #expect(sent.all.count == 2)
+        #expect(sent.all.first?.contains("avatarUrl") == true)
+        #expect(sent.all.last?.contains("avatarUrl") == false)
+        session.mshpMockHandler = nil
+    }
+
+    @Test func currentUserPropagatesNonFieldGraphQLError() async throws {
+        let key = ShikimoriGraphQLClient.currentUserQueryDefaultsKey
+        let savedQuery = UserDefaults.standard.string(forKey: key)
+        defer {
+            if let savedQuery {
+                UserDefaults.standard.set(savedQuery, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        UserDefaults.standard.removeObject(forKey: key)
+
+        let session = MockURLSession.make()
+        let sent = SentBodies()
+        let denied = Data(#"{"errors":[{"message":"Unauthorized"}]}"#.utf8)
+        session.mshpMockHandler = { req in
+            sent.append(String(data: req.mshpInterceptedBody(), encoding: .utf8) ?? "")
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (resp, denied)
+        }
+        let gql = ShikimoriGraphQLClient(configuration: graphQLConfig(), session: session, throttler: unthrottled())
+        await expectShikimoriError("graphqlErrors") {
+            _ = try await gql.currentUser()
+        } matching: { error in
+            guard case .graphqlErrors(let messages) = error else { return false }
+            return messages.first?.message == "Unauthorized"
+        }
+        // A rejection that isn't about a missing field must stop the walk.
+        #expect(sent.all.count == 1)
+        session.mshpMockHandler = nil
     }
 
     @Test func oauthTokenPostsFormFields() async throws {
@@ -143,7 +311,7 @@ struct ShikimoriHTTPTests {
         {"access_token":"a","token_type":"Bearer","expires_in":60,"refresh_token":"r"}
         """
         let tokenJson = Data(tokenJsonString.utf8)
-        MockURLProtocol.handler = { req in
+        session.mshpMockHandler = { req in
             #expect(req.httpMethod == "POST")
             #expect(req.url?.absoluteString.contains("oauth/token") == true)
             #expect(req.value(forHTTPHeaderField: "User-Agent") == cfg.userAgentAppName)
@@ -152,6 +320,7 @@ struct ShikimoriHTTPTests {
             #expect(body.contains("client_id=cid"))
             #expect(body.contains("client_secret=csec"))
             #expect(body.contains("code=mycode"))
+            #expect(body.contains("code_verifier=myverifier"))
             let resp = HTTPURLResponse(
                 url: req.url!,
                 statusCode: 200,
@@ -161,10 +330,10 @@ struct ShikimoriHTTPTests {
             return (resp, tokenJson)
         }
         let oauth = OAuthTokenClient(configuration: cfg, session: session)
-        let tok = try await oauth.exchangeAuthorizationCode("mycode")
+        let tok = try await oauth.exchangeAuthorizationCode("mycode", codeVerifier: "myverifier")
         #expect(tok.accessToken == "a")
         #expect(tok.refreshToken == "r")
-        MockURLProtocol.handler = nil
+        session.mshpMockHandler = nil
     }
 }
 
