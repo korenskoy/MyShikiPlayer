@@ -50,7 +50,10 @@ struct KodikClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await session.boundedData(for: request, limit: ResponseSizeLimit.catalogJSON)
+        } catch BoundedResponseError.tooLarge(let limit) {
+            await log("catalog_fail reason=oversize limit=\(limit)")
+            throw KodikSourceError.parse("catalog response exceeds \(limit) bytes")
         } catch {
             // Transport failure (DNS, TLS, offline). MUST NOT clear the Kodik
             // token — the caller decides whether to retry / show "no network".

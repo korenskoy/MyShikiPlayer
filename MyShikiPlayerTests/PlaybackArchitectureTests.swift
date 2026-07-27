@@ -25,8 +25,22 @@ final class PlaybackArchitectureTests: XCTestCase {
         // missing or the plist key was dropped — playback would silently
         // wipe the dub picker on every refresh (see feedback memory
         // "Плеер и авторизация — устойчивость").
-        UserDefaults.standard.removeObject(forKey: "kodik.apiToken")
-        let token = KodikTokenManager.resolveToken()
+        //
+        // Both storage tiers are injected and thrown away afterwards: the
+        // Keychain now outranks the bundle, so a developer's own Kodik token
+        // would otherwise satisfy this test without the bundle key existing.
+        let suiteName = "ru.korenskoy.MyShikiPlayer.tests.playback.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Could not create a throwaway UserDefaults suite")
+            return
+        }
+        let store = KodikTokenStore(service: suiteName)
+        defer {
+            store.clear()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let token = KodikTokenManager.resolveToken(store: store, defaults: defaults)
         XCTAssertNotNil(token, "Bundle must provide KodikAPIToken; check Configuration/OAuthURLTypes.plist")
         XCTAssertFalse(token?.isEmpty ?? true, "KodikAPIToken must not be empty")
     }
