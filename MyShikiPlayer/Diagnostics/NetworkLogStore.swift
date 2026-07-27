@@ -124,8 +124,7 @@ final class NetworkLogStore: ObservableObject {
         let prefixData = data.prefix(maxBytes)
 
         if let json = try? JSONSerialization.jsonObject(with: Data(prefixData)),
-           let sanitized = sanitizeJSONObject(json),
-           let sanitizedData = try? JSONSerialization.data(withJSONObject: sanitized),
+           let sanitizedData = try? JSONSerialization.data(withJSONObject: sanitizeJSONObject(json)),
            var text = String(data: sanitizedData, encoding: .utf8) {
             text = text.replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\r", with: " ")
@@ -145,7 +144,11 @@ final class NetworkLogStore: ObservableObject {
         return "<\(prefixData.count) bytes binary>"
     }
 
-    nonisolated private static func sanitizeJSONObject(_ object: Any) -> Any? {
+    /// Returns a copy of `object` with secret-bearing values replaced. Stays
+    /// non-optional so the array branch maps to plain elements — wrapping the
+    /// recursive result in `Any?` used to leave `Optional<Any>` boxes inside
+    /// the array, which only survived re-encoding thanks to Obj-C bridging.
+    nonisolated static func sanitizeJSONObject(_ object: Any) -> Any {
         let sensitive = Set(["access_token", "refresh_token", "client_secret", "token", "code"])
 
         if let dict = object as? [String: Any] {
@@ -160,7 +163,7 @@ final class NetworkLogStore: ObservableObject {
             return out
         }
         if let array = object as? [Any] {
-            return array.map { sanitizeJSONObject($0) as Any }
+            return array.map { sanitizeJSONObject($0) }
         }
         return object
     }
