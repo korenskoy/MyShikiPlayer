@@ -361,10 +361,8 @@ private final class CacheEventObserver {
     struct Captured {
         let animeId: Int
         let userId: Int
-        /// Reconstructed from the notification's userInfo dictionary —
-        /// `CacheEvents` flattens the payload into individual keys rather
-        /// than passing the struct directly. Absent when the publisher
-        /// chose not to pass one (e.g. delete path posts only ids).
+        /// Absent when the publisher chose not to pass one (e.g. the delete
+        /// path posts ids only).
         let payload: CacheEvents.UserRatePayload?
     }
 
@@ -381,29 +379,16 @@ private final class CacheEventObserver {
             object: nil,
             queue: nil
         ) { [weak self] note in
-            let info = note.userInfo ?? [:]
-            let animeId = (info[CacheEvents.animeIdKey] as? Int) ?? -1
-            let userId = (info[CacheEvents.userIdKey] as? Int) ?? -1
-            let payload: CacheEvents.UserRatePayload? = {
-                guard
-                    let rateId = info[CacheEvents.rateIdKey] as? Int,
-                    let status = info[CacheEvents.statusKey] as? String,
-                    let score = info[CacheEvents.scoreKey] as? Int,
-                    let episodes = info[CacheEvents.episodesKey] as? Int
-                else { return nil }
-                return CacheEvents.UserRatePayload(
-                    rateId: rateId,
-                    status: status,
-                    score: score,
-                    episodes: episodes,
-                    updatedAt: info[CacheEvents.updatedAtKey] as? Date
-                )
-            }()
+            guard let event = CacheEvents.mutationPayload(from: note) else { return }
             // The post originates from `@MainActor` mutation paths so we are
             // already on the main thread — assume isolation to write the
             // captured value without an extra hop.
             MainActor.assumeIsolated {
-                self?.lastPayload = Captured(animeId: animeId, userId: userId, payload: payload)
+                self?.lastPayload = Captured(
+                    animeId: event.animeId,
+                    userId: event.userId,
+                    payload: event.userRate
+                )
             }
         }
     }

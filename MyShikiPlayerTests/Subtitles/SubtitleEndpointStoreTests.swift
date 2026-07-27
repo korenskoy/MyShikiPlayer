@@ -35,11 +35,10 @@ final class SubtitleEndpointStoreTests: XCTestCase {
     let cacheURL = tempCacheURL()
     try? FileManager.default.removeItem(at: cacheURL)
 
-    MockURLProtocol.handler = { request in
+    let session = MockURLSession.make { _ in
       networkCallCount += 1
       throw URLError(.notConnectedToInternet)
     }
-    let session = MockURLSession.make()
     let store = SubtitleEndpointStore(session: session, cacheURL: cacheURL)
 
     do {
@@ -62,11 +61,10 @@ final class SubtitleEndpointStoreTests: XCTestCase {
     let data = try JSONEncoder().encode(config)
     try data.write(to: cacheURL)
 
-    MockURLProtocol.handler = { _ in
+    let session = MockURLSession.make { _ in
       networkCallCount += 1
       throw URLError(.notConnectedToInternet)
     }
-    let session = MockURLSession.make()
     let store = SubtitleEndpointStore(session: session, cacheURL: cacheURL)
 
     let result = try await store.endpoints()
@@ -84,11 +82,10 @@ final class SubtitleEndpointStoreTests: XCTestCase {
     let cacheURL = tempCacheURL()
     try? FileManager.default.removeItem(at: cacheURL)
 
-    MockURLProtocol.handler = { _ in
+    let session = MockURLSession.make { _ in
       networkCallCount += 1
       throw URLError(.notConnectedToInternet)
     }
-    let session = MockURLSession.make()
     let store = SubtitleEndpointStore(session: session, cacheURL: cacheURL)
 
     do { try await store.refresh() } catch {}
@@ -108,10 +105,9 @@ final class SubtitleEndpointStoreTests: XCTestCase {
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     try JSONEncoder().encode(stale).write(to: cacheURL)
 
-    MockURLProtocol.handler = { _ in
+    let session = MockURLSession.make { _ in
       throw URLError(.notConnectedToInternet)
     }
-    let session = MockURLSession.make()
     let store = SubtitleEndpointStore(session: session, cacheURL: cacheURL)
 
     let result1 = try await store.endpoints()
@@ -128,8 +124,7 @@ final class SubtitleEndpointStoreTests: XCTestCase {
     let cacheURL = tempCacheURL()
     try? FileManager.default.removeItem(at: cacheURL)
 
-    MockURLProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
-    let session = MockURLSession.make()
+    let session = MockURLSession.make { _ in throw URLError(.notConnectedToInternet) }
     let store = SubtitleEndpointStore(session: session, cacheURL: cacheURL)
 
     do {

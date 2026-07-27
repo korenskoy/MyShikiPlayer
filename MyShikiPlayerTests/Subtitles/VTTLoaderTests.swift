@@ -19,7 +19,7 @@ final class VTTLoaderTests: XCTestCase {
   }
 
   override func tearDown() {
-    MockURLProtocol.handler = nil
+    session.mshpMockHandler = nil
     session = nil
     loader = nil
     super.tearDown()
@@ -28,13 +28,13 @@ final class VTTLoaderTests: XCTestCase {
   // MARK: - Parsing
 
   func testParsesStandardCues() async throws {
-    MockURLProtocol.handler = { _ in makeResponse(body: vttStandard) }
+    session.mshpMockHandler = { _ in makeResponse(body: vttStandard) }
     let cues = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
     XCTAssertEqual(cues.count, 3)
   }
 
   func testParsesTimingCorrectly() async throws {
-    MockURLProtocol.handler = { _ in makeResponse(body: vttSingleCue) }
+    session.mshpMockHandler = { _ in makeResponse(body: vttSingleCue) }
     let cues = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
     XCTAssertEqual(cues.count, 1)
     // 00:01:23.456 → 60 + 23 + 0.456 = 83.456
@@ -45,7 +45,7 @@ final class VTTLoaderTests: XCTestCase {
   }
 
   func testParsesMultilineCue() async throws {
-    MockURLProtocol.handler = { _ in makeResponse(body: vttMultiline) }
+    session.mshpMockHandler = { _ in makeResponse(body: vttMultiline) }
     let cues = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
     XCTAssertEqual(cues.count, 1)
     XCTAssertTrue(cues[0].text.contains("\n"), "Multiline cue should preserve line break")
@@ -54,20 +54,20 @@ final class VTTLoaderTests: XCTestCase {
   func testHandlesBOM() async throws {
     let bomPrefix = Data([0xEF, 0xBB, 0xBF])
     let payload = bomPrefix + Data(vttSingleCue.utf8)
-    MockURLProtocol.handler = { _ in makeResponse(data: payload) }
+    session.mshpMockHandler = { _ in makeResponse(data: payload) }
     let cues = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
     XCTAssertEqual(cues.count, 1)
   }
 
   func testHandlesCRLF() async throws {
     let crlf = vttSingleCue.replacingOccurrences(of: "\n", with: "\r\n")
-    MockURLProtocol.handler = { _ in makeResponse(body: crlf) }
+    session.mshpMockHandler = { _ in makeResponse(body: crlf) }
     let cues = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
     XCTAssertEqual(cues.count, 1)
   }
 
   func testCueIdMatchesPosition() async throws {
-    MockURLProtocol.handler = { _ in makeResponse(body: vttStandard) }
+    session.mshpMockHandler = { _ in makeResponse(body: vttStandard) }
     let cues = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
     for (index, cue) in cues.enumerated() {
       XCTAssertEqual(cue.id, index)
@@ -78,7 +78,7 @@ final class VTTLoaderTests: XCTestCase {
 
   func testSendsCorrectUserAgent() async throws {
     var capturedRequest: URLRequest?
-    MockURLProtocol.handler = { req in
+    session.mshpMockHandler = { req in
       capturedRequest = req
       return makeResponse(body: vttSingleCue)
     }
@@ -92,7 +92,7 @@ final class VTTLoaderTests: XCTestCase {
   func testHitsProvidedURL() async throws {
     let target = URL(string: "https://cdn.example.com/ep1.vtt")!
     var capturedURL: URL?
-    MockURLProtocol.handler = { req in
+    session.mshpMockHandler = { req in
       capturedURL = req.url
       return makeResponse(body: vttSingleCue)
     }
@@ -103,7 +103,7 @@ final class VTTLoaderTests: XCTestCase {
   // MARK: - Error handling
 
   func testThrowsOnNetworkError() async {
-    MockURLProtocol.handler = { _ in throw URLError(.timedOut) }
+    session.mshpMockHandler = { _ in throw URLError(.timedOut) }
     do {
       _ = try await loader.load(URL(string: "https://example.com/subs.vtt")!)
       XCTFail("Expected throw")
