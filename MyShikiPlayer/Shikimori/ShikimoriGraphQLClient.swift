@@ -5,6 +5,15 @@
 
 import Foundation
 
+/// Shared shape of every GraphQL response we decode. `perform` inspects
+/// `errors` before handing the envelope back, so all call sites fail alike.
+protocol GraphQLEnvelope: Decodable {
+    var errors: [GraphQLErrorMessage]? { get }
+}
+
+extension GraphQLAnimesEnvelope: GraphQLEnvelope {}
+extension GraphQLAnimeStatsEnvelope: GraphQLEnvelope {}
+
 private struct GraphQLRequestBody<Variables: Encodable>: Encodable {
     let query: String
     let variables: Variables
@@ -14,7 +23,7 @@ private struct GraphQLRequestBodyNoVariables: Encodable {
     let query: String
 }
 
-private struct GraphQLEnumIntrospectionEnvelope: Decodable {
+private struct GraphQLEnumIntrospectionEnvelope: GraphQLEnvelope {
     struct DataField: Decodable {
         struct TypeField: Decodable {
             struct EnumValue: Decodable {
@@ -32,7 +41,7 @@ private struct GraphQLEnumIntrospectionEnvelope: Decodable {
     let errors: [GraphQLErrorMessage]?
 }
 
-private struct GraphQLDynamicAnimesEnvelope: Decodable {
+private struct GraphQLDynamicAnimesEnvelope: GraphQLEnvelope {
     struct DataField: Decodable {
         let animes: [GraphQLAnimeSummary]?
     }
@@ -44,8 +53,12 @@ final class ShikimoriGraphQLClient: Sendable {
     private let http: ShikimoriHTTPClient
     private let graphqlURL: URL
 
-    init(configuration: ShikimoriConfiguration, session: URLSession = .shared) {
-        self.http = ShikimoriHTTPClient(configuration: configuration, session: session)
+    init(
+        configuration: ShikimoriConfiguration,
+        session: URLSession = .shared,
+        throttler: RequestThrottler = .shared
+    ) {
+        self.http = ShikimoriHTTPClient(configuration: configuration, session: session, throttler: throttler)
         self.graphqlURL = configuration.apiBaseURL.appendingPathComponent("api/graphql")
     }
 
@@ -61,21 +74,45 @@ final class ShikimoriGraphQLClient: Sendable {
         return e
     }()
 
-    func animes(search: String, limit: Int, kind: String? = nil) async throws -> [GraphQLAnimeSummary] {
-        let vars = AnimesSearchVariables(search: search, limit: limit, kind: kind)
-        let body = GraphQLRequestBody(query: ShikimoriGraphQLQueries.animesSearch, variables: vars)
-        let payload = try Self.gqlEncoder.encode(body)
+    // MARK: - Transport
+
+    /// POSTs a ready payload and returns the raw body. Non-2xx surfaces as
+    /// `.httpStatus`; the body is kept so the alert can quote the server.
+    private func postGraphQL(payload: Data) async throws -> Data {
         let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
         try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
-        let envelope: GraphQLAnimesEnvelope
+        return data
+    }
+
+    /// Sends a pre-encoded payload and decodes the envelope. Malformed JSON
+    /// becomes `.decoding`, a non-empty `errors` array becomes `.graphqlErrors`.
+    private func perform<Envelope: GraphQLEnvelope>(payload: Data) async throws -> Envelope {
+        let data = try await postGraphQL(payload: payload)
+        let envelope: Envelope
         do {
-            envelope = try Self.gqlDecoder.decode(GraphQLAnimesEnvelope.self, from: data)
+            envelope = try Self.gqlDecoder.decode(Envelope.self, from: data)
         } catch {
             throw ShikimoriAPIError.decoding(underlying: error, body: data)
         }
         if let errs = envelope.errors, !errs.isEmpty {
             throw ShikimoriAPIError.graphqlErrors(errs)
         }
+        return envelope
+    }
+
+    private func perform<Envelope: GraphQLEnvelope, Vars: Encodable>(query: String, variables: Vars) async throws -> Envelope {
+        try await perform(payload: Self.gqlEncoder.encode(GraphQLRequestBody(query: query, variables: variables)))
+    }
+
+    private func perform<Envelope: GraphQLEnvelope>(query: String) async throws -> Envelope {
+        try await perform(payload: Self.gqlEncoder.encode(GraphQLRequestBodyNoVariables(query: query)))
+    }
+
+    // MARK: - Animes
+
+    func animes(search: String, limit: Int, kind: String? = nil) async throws -> [GraphQLAnimeSummary] {
+        let vars = AnimesSearchVariables(search: search, limit: limit, kind: kind)
+        let envelope: GraphQLAnimesEnvelope = try await perform(query: ShikimoriGraphQLQueries.animesSearch, variables: vars)
         return envelope.data?.animes ?? []
     }
 
@@ -86,19 +123,7 @@ final class ShikimoriGraphQLClient: Sendable {
             limit: limit,
             kind: kind
         )
-        let body = GraphQLRequestBody(query: ShikimoriGraphQLQueries.animesByIds, variables: vars)
-        let payload = try Self.gqlEncoder.encode(body)
-        let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
-        let envelope: GraphQLAnimesEnvelope
-        do {
-            envelope = try Self.gqlDecoder.decode(GraphQLAnimesEnvelope.self, from: data)
-        } catch {
-            throw ShikimoriAPIError.decoding(underlying: error, body: data)
-        }
-        if let errs = envelope.errors, !errs.isEmpty {
-            throw ShikimoriAPIError.graphqlErrors(errs)
-        }
+        let envelope: GraphQLAnimesEnvelope = try await perform(query: ShikimoriGraphQLQueries.animesByIds, variables: vars)
         return envelope.data?.animes ?? []
     }
 
@@ -106,26 +131,34 @@ final class ShikimoriGraphQLClient: Sendable {
     /// Returns nil if GraphQL returned an empty result — the UI simply hides the block.
     func animeStats(id: Int) async throws -> GraphQLAnimeStatsEntry? {
         let vars = AnimeStatsVariables(id: String(id))
-        let body = GraphQLRequestBody(query: ShikimoriGraphQLQueries.animeStats, variables: vars)
-        let payload = try Self.gqlEncoder.encode(body)
-        let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
-        let envelope: GraphQLAnimeStatsEnvelope
-        do {
-            envelope = try Self.gqlDecoder.decode(GraphQLAnimeStatsEnvelope.self, from: data)
-        } catch {
-            throw ShikimoriAPIError.decoding(underlying: error, body: data)
-        }
-        if let errs = envelope.errors, !errs.isEmpty {
-            throw ShikimoriAPIError.graphqlErrors(errs)
-        }
+        let envelope: GraphQLAnimeStatsEnvelope = try await perform(query: ShikimoriGraphQLQueries.animeStats, variables: vars)
         return envelope.data?.animes?.first
     }
 
+    // MARK: - Introspection
+
+    func enumValues(typeName: String) async throws -> [String] {
+        let sanitized = typeName.filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        guard !sanitized.isEmpty else { return [] }
+        let query = """
+        query EnumValues {
+          __type(name: "\(sanitized)") {
+            enumValues { name }
+          }
+        }
+        """
+        let envelope: GraphQLEnumIntrospectionEnvelope = try await perform(query: query)
+        return envelope.data?.typeField?.enumValues?.map(\.name) ?? []
+    }
+}
+
+// MARK: - Current user
+
+extension ShikimoriGraphQLClient {
     func currentUser() async throws -> CurrentUser {
         // Try the previously-known-good query shape first to avoid wasting
-        // 1-2 round-trips per cold start re-discovering it. Shikimori's
-        // `User` schema occasionally drops fields (e.g. `image`, `avatar`),
+        // a round-trip per cold start re-discovering it. Shikimori's
+        // `User` schema occasionally drops fields (e.g. `avatarUrl`),
         // so we still fall back to the full candidate list on first failure.
         let queries = Self.orderedCandidates(preferred: Self.cachedCurrentUserQuery)
         do {
@@ -160,14 +193,14 @@ final class ShikimoriGraphQLClient: Sendable {
         throw lastError ?? ShikimoriAPIError.invalidResponse
     }
 
-    private static let currentUserQueryDefaultsKey = "shikimori.gql.currentUserQuery"
+    static let currentUserQueryDefaultsKey = "shikimori.gql.currentUserQuery"
 
     private static var cachedCurrentUserQuery: String? {
         UserDefaults.standard.string(forKey: currentUserQueryDefaultsKey)
     }
 
     private static func cacheCurrentUserQuery(_ query: String?) {
-        if let query, currentUserQueryCandidates.contains(query) {
+        if let query, ShikimoriGraphQLQueries.currentUserCandidates.contains(query) {
             UserDefaults.standard.set(query, forKey: currentUserQueryDefaultsKey)
         } else {
             UserDefaults.standard.removeObject(forKey: currentUserQueryDefaultsKey)
@@ -175,18 +208,20 @@ final class ShikimoriGraphQLClient: Sendable {
     }
 
     private static func orderedCandidates(preferred: String?) -> [String] {
-        let candidates = currentUserQueryCandidates
+        let candidates = ShikimoriGraphQLQueries.currentUserCandidates
         guard let preferred, candidates.contains(preferred) else { return candidates }
         var ordered: [String] = [preferred]
         ordered.append(contentsOf: candidates.filter { $0 != preferred })
         return ordered
     }
 
+    /// Parsed by hand instead of through `perform`: the candidates ask for
+    /// different field sets, and a missing or blank user has to surface as
+    /// `.invalidResponse` rather than as a decoding failure — the caller uses
+    /// that distinction to decide whether to try the next candidate.
     private func currentUser(using query: String) async throws -> CurrentUser {
-        let body = GraphQLRequestBodyNoVariables(query: query)
-        let payload = try Self.gqlEncoder.encode(body)
-        let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
+        let payload = try Self.gqlEncoder.encode(GraphQLRequestBodyNoVariables(query: query))
+        let data = try await postGraphQL(payload: payload)
         let jsonObject: Any
         do {
             jsonObject = try JSONSerialization.jsonObject(with: data)
@@ -207,6 +242,10 @@ final class ShikimoriGraphQLClient: Sendable {
         else {
             throw ShikimoriAPIError.invalidResponse
         }
+        return try Self.currentUser(fromUserObject: user)
+    }
+
+    private static func currentUser(fromUserObject user: [String: Any]) throws -> CurrentUser {
         let idValue = user["id"]
         let userId: Int
         if let idString = idValue as? String, let parsed = Int(idString) {
@@ -221,6 +260,9 @@ final class ShikimoriGraphQLClient: Sendable {
             throw ShikimoriAPIError.invalidResponse
         }
 
+        // `image` / `avatar` are not on the current `User` type, so no live
+        // candidate asks for them — read them anyway, that way restoring a
+        // richer candidate is a one-line change in the query list.
         let imageObject = user["image"] as? [String: Any]
         let imageSet = UserImageSet(
             x160: imageObject?["x160"] as? String,
@@ -249,90 +291,17 @@ final class ShikimoriGraphQLClient: Sendable {
         )
     }
 
-    private static var currentUserQueryCandidates: [String] {
-        [
-            """
-            query CurrentUser {
-              currentUser {
-                id
-                nickname
-                avatarUrl
-                image { x160 x148 x80 x64 x48 x32 x16 }
-              }
-            }
-            """,
-            """
-            query CurrentUser {
-              currentUser {
-                id
-                nickname
-                avatar
-                image { x160 x148 x80 x64 x48 x32 x16 }
-              }
-            }
-            """,
-            """
-            query CurrentUser {
-              currentUser {
-                id
-                nickname
-                avatarUrl
-              }
-            }
-            """,
-            """
-            query CurrentUser {
-              currentUser {
-                id
-                nickname
-                avatar
-              }
-            }
-            """,
-            """
-            query CurrentUser {
-              currentUser {
-                id
-                nickname
-              }
-            }
-            """,
-        ]
-    }
-
     private static func isUnknownFieldError(_ errors: [GraphQLErrorMessage]) -> Bool {
         errors.contains { error in
             let message = error.message.lowercased()
             return message.contains("field") && (message.contains("doesn't exist") || message.contains("unknown"))
         }
     }
+}
 
-    func enumValues(typeName: String) async throws -> [String] {
-        let sanitized = typeName.filter { $0.isLetter || $0.isNumber || $0 == "_" }
-        guard !sanitized.isEmpty else { return [] }
-        let query = """
-        query EnumValues {
-          __type(name: "\(sanitized)") {
-            enumValues { name }
-          }
-        }
-        """
-        let body = GraphQLRequestBodyNoVariables(query: query)
-        let payload = try Self.gqlEncoder.encode(body)
-        let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
-        let envelope: GraphQLEnumIntrospectionEnvelope
-        do {
-            envelope = try Self.gqlDecoder.decode(GraphQLEnumIntrospectionEnvelope.self, from: data)
-        } catch {
-            throw ShikimoriAPIError.decoding(underlying: error, body: data)
-        }
-        if let errs = envelope.errors, !errs.isEmpty {
-            throw ShikimoriAPIError.graphqlErrors(errs)
-        }
-        return envelope.data?.typeField?.enumValues?.map(\.name) ?? []
-    }
+// MARK: - Dynamic catalog query
 
+extension ShikimoriGraphQLClient {
     func animesByIdsDynamic(
         ids: [Int],
         search: String?,
@@ -392,17 +361,7 @@ final class ShikimoriGraphQLClient: Sendable {
             "variables": variables,
         ]
         let payload = try JSONSerialization.data(withJSONObject: body)
-        let (data, httpResp) = try await http.jsonRequest(url: graphqlURL, method: "POST", jsonBody: payload)
-        try ShikimoriHTTPClient.throwIfNotOK(response: httpResp, body: data)
-        let envelope: GraphQLDynamicAnimesEnvelope
-        do {
-            envelope = try Self.gqlDecoder.decode(GraphQLDynamicAnimesEnvelope.self, from: data)
-        } catch {
-            throw ShikimoriAPIError.decoding(underlying: error, body: data)
-        }
-        if let errs = envelope.errors, !errs.isEmpty {
-            throw ShikimoriAPIError.graphqlErrors(errs)
-        }
+        let envelope: GraphQLDynamicAnimesEnvelope = try await perform(payload: payload)
         return envelope.data?.animes ?? []
     }
 }

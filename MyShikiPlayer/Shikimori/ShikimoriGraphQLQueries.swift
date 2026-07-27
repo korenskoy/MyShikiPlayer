@@ -6,7 +6,26 @@
 import Foundation
 
 enum ShikimoriGraphQLQueries {
-    static let currentUser = #"""
+    /// `currentUser` shapes tried in order until the server accepts one.
+    /// Shikimori's `User` type exposes id / nickname / avatarUrl / lastOnlineAt
+    /// / url — verified by introspection — so the avatar shape is the working
+    /// one and the bare shape is the last resort that keeps sign-in alive if
+    /// `avatarUrl` is ever dropped. Older variants asking for `avatar` or
+    /// `image` were removed: those fields don't exist on the type, so every
+    /// cold start paid a failing round-trip for each of them.
+    static let currentUserCandidates: [String] = [currentUserWithAvatar, currentUserMinimal]
+
+    static let currentUserWithAvatar = #"""
+    query CurrentUser {
+      currentUser {
+        id
+        nickname
+        avatarUrl
+      }
+    }
+    """#
+
+    static let currentUserMinimal = #"""
     query CurrentUser {
       currentUser {
         id
