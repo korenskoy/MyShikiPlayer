@@ -54,8 +54,7 @@ final class Anime365ServiceTests: XCTestCase {
   private func makeService(
     handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
   ) async -> Anime365Service {
-    MockURLProtocol.handler = handler
-    let session = MockURLSession.make()
+    let session = MockURLSession.make(handler: handler)
     let store = StubEndpointStore(config: mockEndpointConfig())
     return Anime365Service(session: session, endpointStore: store)
   }
@@ -63,15 +62,17 @@ final class Anime365ServiceTests: XCTestCase {
   // MARK: - Request URL tests
 
   func test_seriesListURLContainsMalId() async throws {
-    var capturedURL: URL?
+    // The lookup keeps going past the series list (series detail is fetched next), so the
+    // later requests must not mask the one under test — record all of them.
+    var requestedURLs: [String] = []
     let service = await makeService { request in
-      capturedURL = request.url
+      requestedURLs.append(request.url?.absoluteString ?? "")
       let payload: [String: Any] = ["id": 42, "myAnimeListId": 1234, "title": "Test Anime"]
       return (makeResponse(request.url!), jsonData([payload]))
     }
 
     _ = try? await service.searchSubtitles(shikimoriId: 1234, episode: 1)
-    XCTAssertTrue(capturedURL?.absoluteString.contains("myAnimeListId=1234") == true)
+    XCTAssertTrue(requestedURLs.contains { $0.contains("myAnimeListId=1234") })
   }
 
   func test_seriesDetailURLContainsFieldsEpisodes() async throws {
@@ -239,6 +240,41 @@ final class Anime365ServiceTests: XCTestCase {
     let result = try await service.searchSubtitles(shikimoriId: 40, episode: 1, lang: .subRu)
     let ids = result.subtitles.map(\.translationId)
     XCTAssertEqual(ids, [400])
+  }
+
+  // MARK: - ASS availability probing
+
+  /// The HEAD probes fan out through the throttler, so this also guards against a permit
+  /// leak there: a broken acquire/release pairing would hang instead of returning.
+  func test_checkAssDropsTranslationsWithoutAnAssTrack() async throws {
+    let seriesData: [String: Any] = ["id": 6, "myAnimeListId": 60]
+    let seriesDetail: [String: Any] = [
+      "id": 6,
+      "episodes": [["id": 61, "isActive": 1, "episodeInt": "1", "episodeType": "regular"]]
+    ]
+    let episodeDetail: [String: Any] = [
+      "id": 61, "isActive": 1, "episodeInt": "1", "episodeType": "regular",
+      "translations": [
+        ["id": 600, "type": "subru", "typeKind": "sub", "isActive": 1],
+        ["id": 601, "type": "subru", "typeKind": "sub", "isActive": 1]
+      ]
+    ]
+
+    let service = await makeService { request in
+      let url = request.url!.absoluteString
+      if request.httpMethod == "HEAD" {
+        return (makeResponse(request.url!, statusCode: url.contains("/600.ass") ? 200 : 404), Data())
+      }
+      if url.contains("/series/6?fields=episodes") {
+        return (makeResponse(request.url!), jsonData(seriesDetail))
+      } else if url.contains("/episodes/") {
+        return (makeResponse(request.url!), jsonData(episodeDetail))
+      }
+      return (makeResponse(request.url!), jsonData([seriesData]))
+    }
+
+    let result = try await service.searchSubtitles(shikimoriId: 60, episode: 1, checkAss: true)
+    XCTAssertEqual(result.subtitles.map(\.translationId), [600])
   }
 
   // MARK: - URL building

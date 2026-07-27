@@ -5,11 +5,17 @@
 
 import Foundation
 
-/// Two-layer XOR + Base64 cipher used to protect endpoint configuration blobs.
+/// Obfuscation — not encryption — for the subtitle endpoint configuration.
 ///
-/// Both layers use the same algorithm: Base64-decode → XOR cyclic with UTF-8 key → UTF-8 string.
-/// The outer key is constant; the inner key is obtained by decrypting `encInnerXorKeyB64`
-/// with the outer key.
+/// Two layers of the same transform: Base64-decode → XOR cyclic with UTF-8 key → UTF-8 string.
+/// The outer key is a literal in this file; the inner key is `encInnerXorKeyB64` run through
+/// the outer layer.
+///
+/// This provides no confidentiality. Both keys ship inside the binary, XOR with a repeating
+/// key is trivially broken, and anyone reading this file or attaching a debugger recovers the
+/// plaintext immediately. The sole purpose is to keep the endpoint out of a plain `strings`
+/// dump. Never route anything that must actually stay secret through here — no tokens, no
+/// credentials, no user data.
 enum SubtitleConfigCipher {
 
   // MARK: - Constants

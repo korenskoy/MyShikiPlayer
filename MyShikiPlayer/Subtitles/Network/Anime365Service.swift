@@ -30,37 +30,6 @@ enum Anime365Error: Error, LocalizedError, Sendable {
   }
 }
 
-// MARK: - Throttler
-
-private actor Anime365Throttler {
-  private var activeCount = 0
-  private let maxConcurrent: Int
-  private var waiters: [CheckedContinuation<Void, Never>] = []
-
-  init(maxConcurrent: Int = 5) {
-    self.maxConcurrent = maxConcurrent
-  }
-
-  func acquire() async {
-    if activeCount < maxConcurrent {
-      activeCount += 1
-    } else {
-      await withCheckedContinuation { continuation in
-        waiters.append(continuation)
-      }
-      activeCount += 1
-    }
-  }
-
-  func release() {
-    activeCount -= 1
-    if !waiters.isEmpty {
-      let waiter = waiters.removeFirst()
-      waiter.resume()
-    }
-  }
-}
-
 // MARK: - Service
 
 /// Runs the full subtitle-lookup pipeline: series → episode → translations.
@@ -92,7 +61,7 @@ final class Anime365Service {
     guard let seriesURL = Anime365Endpoint.seriesListURL(api: config.api, myAnimeListId: shikimoriId) else {
       throw Anime365Error.networkError(underlying: URLError(.badURL))
     }
-    let seriesList = try await fetchJSON([Anime365Series].self, from: seriesURL, config: config)
+    let seriesList = try await fetchJSON([Anime365Series].self, from: seriesURL)
     guard let series = seriesList.first else {
       throw Anime365Error.noSeriesForShikimoriId
     }
@@ -105,7 +74,7 @@ final class Anime365Service {
     struct SeriesWithEpisodes: Decodable {
       let episodes: [Anime365EpisodeSummary]?
     }
-    let seriesDetail = try await fetchJSON(SeriesWithEpisodes.self, from: seriesDetailURL, config: config)
+    let seriesDetail = try await fetchJSON(SeriesWithEpisodes.self, from: seriesDetailURL)
     let episodes = seriesDetail.episodes ?? []
 
     // 3. Find the matching episode
@@ -120,7 +89,7 @@ final class Anime365Service {
     guard let episodeURL = Anime365Endpoint.episodeDetailURL(api: config.api, seriaId: seria.id) else {
       throw Anime365Error.networkError(underlying: URLError(.badURL))
     }
-    let episodeDetail = try await fetchJSON(Anime365EpisodeDetail.self, from: episodeURL, config: config)
+    let episodeDetail = try await fetchJSON(Anime365EpisodeDetail.self, from: episodeURL)
 
     // 5. Filter translations
     let filtered = episodeDetail.translations.filter { translation in
@@ -183,14 +152,13 @@ final class Anime365Service {
     try await endpointStore.endpoints()
   }
 
-  private func fetchJSON<T: Decodable>(
-    _ type: T.Type,
-    from url: URL,
-    config: SubtitleEndpointConfig
-  ) async throws -> T {
-    await throttler.acquire()
-    defer { Task { await throttler.release() } }
+  private func fetchJSON<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
+    try await throttler.withPermit {
+      try await self.requestJSON(type, from: url)
+    }
+  }
 
+  private func requestJSON<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
     var request = URLRequest(url: url, timeoutInterval: 10)
     request.httpMethod = "GET"
     Anime365Endpoint.restAPIHeaders().forEach { request.setValue($1, forHTTPHeaderField: $0) }
@@ -220,12 +188,17 @@ final class Anime365Service {
     return envelope.value
   }
 
+  /// These HEAD probes fan out one per translation, so they take a permit like every other
+  /// call. Without it `checkAss: true` would bypass the limit precisely where a series with
+  /// two dozen translations hits the backend hardest.
   private func checkAssAvailable(_ url: URL) async -> Bool {
     var request = URLRequest(url: url, timeoutInterval: 10)
     request.httpMethod = "HEAD"
     Anime365Endpoint.endpointFetchHeaders().forEach { request.setValue($1, forHTTPHeaderField: $0) }
     do {
-      let (_, http) = try await httpClient.data(for: request)
+      let (_, http) = try await throttler.withPermit {
+        try await self.httpClient.data(for: request)
+      }
       return (200..<300).contains(http.statusCode)
     } catch {
       return false

@@ -24,7 +24,6 @@ final class SubtitleStoreTests: XCTestCase {
   }
 
   override func tearDown() {
-    MockURLProtocol.handler = nil
     UserDefaults.standard.removePersistentDomain(forName: suiteName)
     store = nil
     offsetStorage = nil
@@ -124,9 +123,15 @@ final class SubtitleStoreTests: XCTestCase {
   func testSelectTrackLoadsAssWhenURLPresent() async {
     let track = makeTrack(id: 2, withAss: true)
     await store.selectTrack(track)
-    // Both VTT and ASS loaders are served by the same MockURLProtocol handler
-    // (which returns the VTT body — content doesn't matter for this test).
     XCTAssertNotNil(store.loadedAssBytes)
+  }
+
+  func testSelectTrackDropsAssPayloadWithoutSectionHeader() async {
+    // A CDN edge answering an .ass URL with an HTML error page must not reach libass.
+    setupStore(vttBody: vttFixture, assBody: "<html><body>404</body></html>")
+    let track = makeTrack(id: 2, withAss: true)
+    await store.selectTrack(track)
+    XCTAssertNil(store.loadedAssBytes)
   }
 
   func testSelectSameTrackTwiceIsNoOp() async {
@@ -231,20 +236,23 @@ final class SubtitleStoreTests: XCTestCase {
 
   // MARK: - Helpers
 
-  private func setupStore(vttBody: String) {
-    MockURLProtocol.handler = { _ in
+  private func setupStore(vttBody: String, assBody: String = assFixture) {
+    let session = MockURLSession.make { request in
       let response = HTTPURLResponse(
         url: URL(string: "https://example.com")!,
         statusCode: 200,
         httpVersion: nil,
         headerFields: nil
       )!
-      return (response, Data(vttBody.utf8))
+      // One stub serves both loaders, but `SubtitleStore` drops any ASS payload without a
+      // section header, so the .ass URL has to answer with something libass would accept.
+      let body = request.url?.pathExtension == "ass" ? assBody : vttBody
+      return (response, Data(body.utf8))
     }
     store = SubtitleStore(
       service: service,
       offsetStorage: offsetStorage,
-      session: MockURLSession.make()
+      session: session
     )
   }
 
@@ -267,6 +275,16 @@ final class SubtitleStoreTests: XCTestCase {
 }
 
 // MARK: - VTT fixtures
+
+/// Minimal payload that clears `SubtitleStore`'s ASS section-header check.
+private let assFixture = """
+[Script Info]
+Title: Test
+
+[Events]
+Format: Layer, Start, End, Style, Text
+Dialogue: 0,0:00:01.00,0:00:03.00,Default,Line one.
+"""
 
 private let vttFixture = """
 WEBVTT
