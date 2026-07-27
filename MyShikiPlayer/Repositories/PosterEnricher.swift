@@ -19,19 +19,27 @@ final class PosterEnricher {
 
     private static let diskFilename = "poster-enricher.json"
 
-    private init() {
+    private let session: URLSession
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscription has to go away with them.
+    private let cacheObservers = CacheObserverBag()
+
+    init(session: URLSession = .shared) {
+        self.session = session
         let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("poster_enricher_disk_loaded count=\(loaded)")
         }
         // Posters are independent of user-state — only listen for wipe.
-        CacheEvents.observeClearAll { [weak self] in
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 
     /// id → real poster URL cache. 1 hour — posters do not change often.
-    private let cache = TTLCache<Int, String>(ttl: 60 * 60)
+    /// Entries are a single short string, so the bound is generous: evicting
+    /// early would send us back to GraphQL for posters we already resolved.
+    private let cache = TTLCache<Int, String>(ttl: 60 * 60, maxEntries: 2000)
     /// Active request (batch). Request dedup: concurrent enrich() calls wait.
     private var pending: Task<Void, Never>?
 
@@ -91,7 +99,7 @@ final class PosterEnricher {
         let task = Task<Void, Never> { [weak self] in
             defer { self?.pending = nil }
             guard let self else { return }
-            let gql = ShikimoriGraphQLClient(configuration: configuration)
+            let gql = ShikimoriGraphQLClient(configuration: configuration, session: self.session)
             let summaries = await Self.fetchWithRetry(gql: gql, ids: ids)
             for summary in summaries {
                 if let url = Self.preferredPoster(summary.poster) {
@@ -115,21 +123,17 @@ final class PosterEnricher {
         do {
             return try await RetryPolicy.withRateLimitRetry(
                 onRetry: { attempt, willRetry in
-                    await MainActor.run {
-                        NetworkLogStore.shared.logUIEvent(
-                            "poster_enricher_429 attempt=\(attempt) will_retry=\(willRetry)"
-                        )
-                    }
+                    NetworkLogStore.shared.logUIEvent(
+                        "poster_enricher_429 attempt=\(attempt) will_retry=\(willRetry)"
+                    )
                 }
             ) {
                 try await gql.animes(ids: ids, limit: ids.count)
             }
         } catch {
-            await MainActor.run {
-                NetworkLogStore.shared.logAppError(
-                    "poster_enricher_failed ids=\(ids.count) err=\(error.localizedDescription)"
-                )
-            }
+            NetworkLogStore.shared.logAppError(
+                "poster_enricher_failed ids=\(ids.count) err=\(error.localizedDescription)"
+            )
             return []
         }
     }

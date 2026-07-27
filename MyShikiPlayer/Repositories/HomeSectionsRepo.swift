@@ -32,19 +32,25 @@ final class HomeSectionsRepo: HomeRepository {
 
     private static let diskFilename = "home-sections.json"
 
-    private init() {
+    private let session: URLSession
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscriptions have to go away with them.
+    private let cacheObservers = CacheObserverBag()
+
+    init(session: URLSession = .shared) {
+        self.session = session
         let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("home_repo_disk_loaded users=\(loaded)")
         }
         // user-rate / favorite — invalidate by userId ("Continue watching"
         // and trending depend on user-state).
-        CacheEvents.observeAnimeMutation { [weak self] _, userId in
+        cacheObservers.add(CacheEvents.observeAnimeMutation { [weak self] _, userId in
             self?.invalidate(userId: userId)
-        }
-        CacheEvents.observeClearAll { [weak self] in
+        })
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 
     struct Snapshot: Codable {
@@ -77,26 +83,30 @@ final class HomeSectionsRepo: HomeRepository {
         }
         if let existing = pending[key] { return try await existing.value }
 
+        let session = self.session
         let task = Task<Snapshot, Error> { [weak self] in
             defer { self?.pending.removeValue(forKey: key) }
 
             // Step 1: REST (all in parallel — they are fast and not rate-limited).
             async let trendingRaw = Self.fetchSectionRaw(
                 configuration,
+                session: session,
                 query: Self.trendingQuery(),
                 label: "trending"
             )
             async let newEpisodesRaw = Self.fetchSectionRaw(
                 configuration,
+                session: session,
                 query: Self.newEpisodesQuery(),
                 label: "new_episodes"
             )
             async let recommendationsRaw = Self.fetchSectionRaw(
                 configuration,
+                session: session,
                 query: Self.recommendationsQuery(),
                 label: "recommendations"
             )
-            async let ratesResult = Self.fetchRates(configuration, userId: userId)
+            async let ratesResult = Self.fetchRates(configuration, session: session, userId: userId)
 
             let t = await trendingRaw
             let n = await newEpisodesRaw
@@ -120,7 +130,7 @@ final class HomeSectionsRepo: HomeRepository {
             let allIds = Array(Set(missingFromSections + rateIds))
 
             // Step 3: SINGLE GraphQL request with retry on 429.
-            let summariesById = await Self.fetchSummaries(configuration, ids: allIds)
+            let summariesById = await Self.fetchSummaries(configuration, session: session, ids: allIds)
 
             // Step 4: apply enrichment + build continue.
             let tEnriched = Self.applyPosters(to: t, summaries: summariesById, label: "trending")
@@ -207,28 +217,28 @@ final class HomeSectionsRepo: HomeRepository {
 
     private static func fetchSectionRaw(
         _ config: ShikimoriConfiguration,
+        session: URLSession,
         query: AnimeListQuery,
         label: String
     ) async -> [AnimeListItem] {
-        let rest = ShikimoriRESTClient(configuration: config)
+        let rest = ShikimoriRESTClient(configuration: config, session: session)
         do {
             return try await rest.animes(query: query)
         } catch {
-            await MainActor.run {
-                NetworkLogStore.shared.logAppError(
-                    "home_repo_section_failed \(label) \(error.localizedDescription)"
-                )
-            }
+            NetworkLogStore.shared.logAppError(
+                "home_repo_section_failed \(label) \(error.localizedDescription)"
+            )
             return []
         }
     }
 
     private static func fetchRates(
         _ config: ShikimoriConfiguration,
+        session: URLSession,
         userId: Int?
     ) async -> Result<[UserRateV2], Error> {
         guard let userId else { return .success([]) }
-        let rest = ShikimoriRESTClient(configuration: config)
+        let rest = ShikimoriRESTClient(configuration: config, session: session)
         var q = UserRatesListQuery()
         q.userId = userId
         q.status = "watching"
@@ -238,11 +248,9 @@ final class HomeSectionsRepo: HomeRepository {
             let sorted = rates.sorted { $0.updatedAt > $1.updatedAt }
             return .success(Array(sorted.prefix(4)))
         } catch {
-            await MainActor.run {
-                NetworkLogStore.shared.logAppError(
-                    "home_repo_continue_rates_failed \(error.localizedDescription)"
-                )
-            }
+            NetworkLogStore.shared.logAppError(
+                "home_repo_continue_rates_failed \(error.localizedDescription)"
+            )
             return .failure(error)
         }
     }
@@ -253,39 +261,34 @@ final class HomeSectionsRepo: HomeRepository {
     /// Returns id → summary map; empty dict means all attempts failed.
     private static func fetchSummaries(
         _ config: ShikimoriConfiguration,
+        session: URLSession,
         ids: [Int]
     ) async -> [Int: GraphQLAnimeSummary] {
         guard !ids.isEmpty else { return [:] }
-        let gql = ShikimoriGraphQLClient(configuration: config)
+        let gql = ShikimoriGraphQLClient(configuration: config, session: session)
         var retryCount = 0
         do {
             let summaries = try await RetryPolicy.withRateLimitRetry(
                 onRetry: { attempt, willRetry in
                     retryCount = attempt + 1
-                    await MainActor.run {
-                        NetworkLogStore.shared.logUIEvent(
-                            "home_enrich_429 attempt=\(attempt) will_retry=\(willRetry)"
-                        )
-                    }
+                    NetworkLogStore.shared.logUIEvent(
+                        "home_enrich_429 attempt=\(attempt) will_retry=\(willRetry)"
+                    )
                 }
             ) {
                 try await gql.animes(ids: ids, limit: ids.count)
             }
             if retryCount > 0 {
-                await MainActor.run {
-                    NetworkLogStore.shared.logUIEvent(
-                        "home_enrich_retry_success attempt=\(retryCount) got=\(summaries.count)"
-                    )
-                }
+                NetworkLogStore.shared.logUIEvent(
+                    "home_enrich_retry_success attempt=\(retryCount) got=\(summaries.count)"
+                )
             }
             return Dictionary(uniqueKeysWithValues: summaries.map { ($0.id, $0) })
         } catch {
-            await MainActor.run {
-                NetworkLogStore.shared.logAppError(
-                    "home_enrich_summaries_failed ids=\(ids.count) " +
-                    "err=\(error.localizedDescription)"
-                )
-            }
+            NetworkLogStore.shared.logAppError(
+                "home_enrich_summaries_failed ids=\(ids.count) " +
+                "err=\(error.localizedDescription)"
+            )
             return [:]
         }
     }

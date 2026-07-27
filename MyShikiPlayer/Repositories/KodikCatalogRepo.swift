@@ -22,7 +22,7 @@ protocol KodikCatalogRepository: AnyObject {
     func catalog(
         shikimoriId: Int,
         token: String,
-        client: KodikClient,
+        client: KodikClient?,
         forceRefresh: Bool
     ) async throws -> [KodikCatalogEntry]
 }
@@ -34,8 +34,15 @@ final class KodikCatalogRepo: KodikCatalogRepository {
     private static let diskFilename = "kodik-catalog.json"
     private let cache = TTLCache<Int, [KodikCatalogEntry]>(ttl: 60 * 60)
     private var pending: [Int: Task<[KodikCatalogEntry], Error>] = [:]
+    private let session: URLSession
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscription has to go away with them.
+    private let cacheObservers = CacheObserverBag()
 
-    private init() {
+    /// `session` backs the `KodikClient` built when the caller does not supply
+    /// one. Production keeps using `shared`.
+    init(session: URLSession = .shared) {
+        self.session = session
         let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("kodik_catalog_repo_disk_loaded count=\(loaded)")
@@ -55,9 +62,10 @@ final class KodikCatalogRepo: KodikCatalogRepository {
     func catalog(
         shikimoriId: Int,
         token: String,
-        client: KodikClient = KodikClient(),
+        client: KodikClient? = nil,
         forceRefresh: Bool = false
     ) async throws -> [KodikCatalogEntry] {
+        let client = client ?? KodikClient(session: session)
         if !forceRefresh, let cached = cache.get(shikimoriId) {
             NetworkLogStore.shared.logUIEvent(
                 "kodik_catalog_repo_hit shikimori_id=\(shikimoriId) entries=\(cached.count)"
@@ -117,8 +125,8 @@ final class KodikCatalogRepo: KodikCatalogRepository {
     }
 
     private func subscribeToCacheEvents() {
-        CacheEvents.observeClearAll { [weak self] in
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 }

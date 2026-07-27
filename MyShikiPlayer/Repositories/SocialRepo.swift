@@ -61,7 +61,13 @@ final class SocialRepo: SocialRepository {
     private static let diskFilenameComments = "social-comments.json"
     private static let diskFilenameFriends = "social-friends.json"
 
-    private init() {
+    private let session: URLSession
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscription has to go away with them.
+    private let cacheObservers = CacheObserverBag()
+
+    init(session: URLSession = .shared) {
+        self.session = session
         let feed = DiskBackup.load(into: feedCache, filename: Self.diskFilenameFeed)
         let topic = DiskBackup.load(into: topicCache, filename: Self.diskFilenameTopic)
         let comments = DiskBackup.load(into: commentsCache, filename: Self.diskFilenameComments)
@@ -73,9 +79,9 @@ final class SocialRepo: SocialRepository {
             )
         }
         // The social feed does not depend on user-rate/favorite — only listen for wipe.
-        CacheEvents.observeClearAll { [weak self] in
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 
     /// Friend activity card: the friend plus their most recent history events.
@@ -110,9 +116,13 @@ final class SocialRepo: SocialRepository {
             NetworkLogStore.shared.logUIEvent("social_feed_hit forum=\(forum) count=\(cached.count)")
             return cached
         }
+        let session = self.session
         return try await pendingFeed.run(for: forum) { [weak self] in
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             let topics = try await rest.topics(forum: forum, limit: 30)
+            // The hop is real here (unlike the ones removed elsewhere in the
+            // repos): `TaskDeduplicator.run` takes a `@Sendable` closure, so
+            // this body is nonisolated and the caches are main-actor state.
             await MainActor.run {
                 self?.feedCache.set(topics, for: forum)
                 if let strongSelf = self {
@@ -137,7 +147,7 @@ final class SocialRepo: SocialRepository {
         forum: String = "animanga",
         page: Int
     ) async throws -> [Topic] {
-        let rest = ShikimoriRESTClient(configuration: configuration)
+        let rest = ShikimoriRESTClient(configuration: configuration, session: session)
         let topics = try await rest.topics(forum: forum, limit: 30, page: page)
         NetworkLogStore.shared.logUIEvent(
             "social_feed_page forum=\(forum) page=\(page) count=\(topics.count)"
@@ -165,8 +175,9 @@ final class SocialRepo: SocialRepository {
             )
             return cached
         }
+        let session = self.session
         return try await pendingFriendsActivity.run(for: userId) { [weak self] in
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             let friends = try await rest.userFriends(id: userId)
             // Cap at 10 friends to avoid spamming the API — the rest will
             // land in "more" later (once we design pagination).
@@ -199,11 +210,9 @@ final class SocialRepo: SocialRepository {
                             guard !history.isEmpty else { return nil }
                             return FriendActivity(friend: friend, entries: history)
                         } catch {
-                            await MainActor.run {
-                                NetworkLogStore.shared.logAppError(
-                                    "social_friend_history_failed user=\(friend.id) err=\(error.localizedDescription)"
-                                )
-                            }
+                            NetworkLogStore.shared.logAppError(
+                                "social_friend_history_failed user=\(friend.id) err=\(error.localizedDescription)"
+                            )
                             return nil
                         }
                     }
@@ -248,8 +257,9 @@ final class SocialRepo: SocialRepository {
         if !forceRefresh, let cached = topicCache.get(id) {
             return cached
         }
+        let session = self.session
         return try await pendingTopic.run(for: id) { [weak self] in
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             let topic = try await rest.topic(id: id)
             await MainActor.run {
                 self?.topicCache.set(topic, for: id)
@@ -275,7 +285,7 @@ final class SocialRepo: SocialRepository {
         topicId: Int,
         page: Int
     ) async throws -> [TopicComment] {
-        let rest = ShikimoriRESTClient(configuration: configuration)
+        let rest = ShikimoriRESTClient(configuration: configuration, session: session)
         let comments = try await rest.comments(
             commentableType: "Topic",
             commentableId: topicId,
@@ -296,8 +306,9 @@ final class SocialRepo: SocialRepository {
         if !forceRefresh, let cached = commentsCache.get(topicId) {
             return cached
         }
+        let session = self.session
         return try await pendingComments.run(for: topicId) { [weak self] in
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             let comments = try await rest.comments(
                 commentableType: "Topic",
                 commentableId: topicId,

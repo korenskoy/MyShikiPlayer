@@ -27,10 +27,19 @@ protocol AnimeDetailsRepository: AnyObject {
 final class AnimeDetailRepo: AnimeDetailsRepository {
     static let shared = AnimeDetailRepo()
 
-    private static let diskFilename = "anime-detail.json"
+    private let session: URLSession
+    private let diskFilename: String
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscriptions have to go away with them.
+    private let cacheObservers = CacheObserverBag()
 
-    private init() {
-        let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
+    /// `session` and `diskFilename` are injectable so a test can drive the repo
+    /// through a stubbed `URLProtocol` and its own throwaway backup file.
+    /// Production keeps using `shared`.
+    init(session: URLSession = .shared, diskFilename: String = "anime-detail.json") {
+        self.session = session
+        self.diskFilename = diskFilename
+        let loaded = DiskBackup.load(into: cache, filename: diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("anime_detail_repo_disk_loaded count=\(loaded)")
         }
@@ -81,7 +90,10 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
         }
     }
 
-    private let cache = TTLCache<Int, Snapshot>(ttl: 30 * 60)
+    // A snapshot bundles detail + screenshots + videos + related + up to 100
+    // franchise items, so it is by far the heaviest thing we persist — hence
+    // a tighter bound than the TTLCache default.
+    private let cache = TTLCache<Int, Snapshot>(ttl: 30 * 60, maxEntries: 80)
     private var pending: [Int: Task<Snapshot, Error>] = [:]
 
     /// Instant synchronous access to the cache — no network.
@@ -142,7 +154,7 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
                     franchiseItems: cached.franchiseItems
                 )
                 cache.set(updated, for: id)
-                DiskBackup.save(cache: cache, filename: Self.diskFilename)
+                DiskBackup.save(cache: cache, filename: diskFilename)
                 NetworkLogStore.shared.logUIEvent(
                     "anime_detail_repo_kodik_resync id=\(id) entries=\(fresh.count)"
                 )
@@ -161,11 +173,12 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
             "anime_detail_repo_fetch_start id=\(id) force_refresh=\(forceRefresh)"
         )
 
+        let session = self.session
         let task = Task<Snapshot, Error> { [weak self] in
             defer { self?.pending.removeValue(forKey: id) }
 
-            let rest = ShikimoriRESTClient(configuration: configuration)
-            let gql = ShikimoriGraphQLClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
+            let gql = ShikimoriGraphQLClient(configuration: configuration, session: session)
 
             async let detailAsync: AnimeDetail = rest.anime(id: id)
             async let statsAsync: GraphQLAnimeStatsEntry? = try? await gql.animeStats(id: id)
@@ -187,13 +200,11 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
             let videos = await videosAsync
 
             let statsLabel = stats == nil ? "nil" : "ok"
-            await MainActor.run {
-                NetworkLogStore.shared.logUIEvent(
-                    "anime_detail_repo_fetch_pieces id=\(id)"
-                    + " kodik=\(kodik.count) shots=\(shots.count)"
-                    + " videos=\(videos.count) stats=\(statsLabel)"
-                )
-            }
+            NetworkLogStore.shared.logUIEvent(
+                "anime_detail_repo_fetch_pieces id=\(id)"
+                + " kodik=\(kodik.count) shots=\(shots.count)"
+                + " videos=\(videos.count) stats=\(statsLabel)"
+            )
 
             let relatedRaw = await Self.loadRelated(detail: detail, rest: rest)
             let related = await PosterEnricher.shared.enriched(
@@ -218,7 +229,7 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
             )
             self?.cache.set(snapshot, for: id)
             if let strongSelf = self {
-                DiskBackup.save(cache: strongSelf.cache, filename: Self.diskFilename)
+                DiskBackup.save(cache: strongSelf.cache, filename: strongSelf.diskFilename)
             }
             NetworkLogStore.shared.logUIEvent(
                 "anime_detail_repo_cached id=\(id) shots=\(shots.count) videos=\(videos.count)"
@@ -238,26 +249,26 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
             task.cancel()
             pending.removeValue(forKey: id)
         }
-        DiskBackup.save(cache: cache, filename: Self.diskFilename)
+        DiskBackup.save(cache: cache, filename: diskFilename)
     }
 
     func invalidateAll() {
         cache.invalidateAll()
         pending.values.forEach { $0.cancel() }
         pending.removeAll()
-        DiskBackup.remove(filename: Self.diskFilename)
+        DiskBackup.remove(filename: diskFilename)
     }
 
     // MARK: - Event subscriptions (Iter 4)
 
     private func subscribeToCacheEvents() {
         // user-rate / favorite — partial invalidate by animeId.
-        CacheEvents.observeAnimeMutation { [weak self] animeId, _ in
+        cacheObservers.add(CacheEvents.observeAnimeMutation { [weak self] animeId, _ in
             self?.invalidate(id: animeId)
-        }
-        CacheEvents.observeClearAll { [weak self] in
+        })
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 
     // MARK: - Loaders (same ones that used to live in AnimeDetailsViewModel)
@@ -266,14 +277,10 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
         id: Int,
         client: KodikClient
     ) async -> [KodikCatalogEntry] {
-        await MainActor.run {
-            NetworkLogStore.shared.logUIEvent("anime_detail_repo_kodik_load_start id=\(id)")
-        }
+        NetworkLogStore.shared.logUIEvent("anime_detail_repo_kodik_load_start id=\(id)")
 
         guard let token = KodikTokenManager.resolveToken() else {
-            await MainActor.run {
-                NetworkLogStore.shared.logUIEvent("anime_detail_repo_kodik_skip id=\(id) reason=no_token")
-            }
+            NetworkLogStore.shared.logUIEvent("anime_detail_repo_kodik_skip id=\(id) reason=no_token")
             return await staleKodikFallback(id: id, reason: "no_token") ?? []
         }
 
@@ -292,25 +299,19 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
                    !stale.isEmpty {
                     return stale
                 }
-                await MainActor.run {
-                    NetworkLogStore.shared.logUIEvent(
-                        "anime_detail_repo_kodik_load_ok id=\(id) entries=0"
-                    )
-                }
+                NetworkLogStore.shared.logUIEvent(
+                    "anime_detail_repo_kodik_load_ok id=\(id) entries=0"
+                )
                 return []
             }
-            await MainActor.run {
-                NetworkLogStore.shared.logUIEvent(
-                    "anime_detail_repo_kodik_load_ok id=\(id) entries=\(result.count)"
-                )
-            }
+            NetworkLogStore.shared.logUIEvent(
+                "anime_detail_repo_kodik_load_ok id=\(id) entries=\(result.count)"
+            )
             return result
         } catch {
-            await MainActor.run {
-                NetworkLogStore.shared.logAppError(
-                    "anime_detail_repo_kodik_failed id=\(id) \(error.localizedDescription)"
-                )
-            }
+            NetworkLogStore.shared.logAppError(
+                "anime_detail_repo_kodik_failed id=\(id) \(error.localizedDescription)"
+            )
             return await staleKodikFallback(id: id, reason: "load_error") ?? []
         }
     }
@@ -324,11 +325,9 @@ final class AnimeDetailRepo: AnimeDetailsRepository {
     ) async -> [KodikCatalogEntry]? {
         let stale = await KodikCatalogRepo.shared.cachedCatalog(shikimoriId: id, allowStale: true)
         guard let stale, !stale.isEmpty else { return nil }
-        await MainActor.run {
-            NetworkLogStore.shared.logUIEvent(
-                "anime_detail_repo_kodik_fallback_stale id=\(id) entries=\(stale.count) reason=\(reason)"
-            )
-        }
+        NetworkLogStore.shared.logUIEvent(
+            "anime_detail_repo_kodik_fallback_stale id=\(id) entries=\(stale.count) reason=\(reason)"
+        )
         return stale
     }
 

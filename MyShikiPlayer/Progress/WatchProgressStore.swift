@@ -19,14 +19,19 @@ final class WatchProgressStore: ObservableObject {
 
     private let defaultsKey = "watchProgressStore.records"
 
+    /// A store is created per `PlaybackSession`, i.e. per player launch, so the
+    /// cache-event subscription has to be torn down with it — otherwise every
+    /// opened episode leaves another permanent block observer behind.
+    private let cacheObservers = CacheObserverBag()
+
     init() {
         restore()
         // Allow centralised wipes (sign-out / requires-reauth) to drop in-memory
         // resume positions without juggling shared instances. PersonalCacheCleaner
         // already removes the UserDefaults blob; this listener flushes RAM too.
-        CacheEvents.observeClearAll { [weak self] in
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.purgeInMemoryRecords()
-        }
+        })
     }
 
     private func purgeInMemoryRecords() {

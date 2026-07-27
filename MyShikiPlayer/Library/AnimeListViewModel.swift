@@ -98,6 +98,12 @@ final class AnimeListViewModel: ObservableObject {
     @Published private(set) var ratingOptions: [String] = ["ALL"]
     private var didLoadFilterEnums = false
 
+    /// `LibraryView` owns this model through `@StateObject`, and `AppShellView`
+    /// rebuilds its tab branches through a `switch`, so SwiftUI tears the model
+    /// down and recreates it on every tab switch. Without the bag, each visit
+    /// would leave two more permanent block observers behind.
+    private let cacheObservers = CacheObserverBag()
+
     init() {
         let snapshot = LibraryFilterPersistence.loadSnapshot()
         selectedTab = snapshot.selectedTab
@@ -111,11 +117,11 @@ final class AnimeListViewModel: ObservableObject {
         // the title's details page), drop it from the in-memory list and
         // invalidate the on-disk cache so the next reload doesn't resurrect
         // it from the 15-minute TTL snapshot.
-        CacheEvents.observeUserRateRemoved { [weak self] animeId, _ in
+        cacheObservers.add(CacheEvents.observeUserRateRemoved { [weak self] animeId, _ in
             guard let self else { return }
             self.allItems.removeAll { $0.shikimoriId == animeId }
             self.invalidateListCache()
-        }
+        })
 
         // When the rate is updated elsewhere (status / score / episodes via
         // the details screen), patch the matching row in-place so the title
@@ -124,7 +130,7 @@ final class AnimeListViewModel: ObservableObject {
         // Row not in `allItems` → user just added a new title from details;
         // we lack title/poster fields to insert, so just invalidate cache and
         // let the next reload pick it up.
-        CacheEvents.observeUserRateChanged { [weak self] animeId, _, payload in
+        cacheObservers.add(CacheEvents.observeUserRateChanged { [weak self] animeId, _, payload in
             guard let self else { return }
             guard let payload else {
                 self.invalidateListCache()
@@ -149,7 +155,7 @@ final class AnimeListViewModel: ObservableObject {
                 )
             }
             self.invalidateListCache()
-        }
+        })
     }
 
     var visibleItems: [Item] {
@@ -351,4 +357,3 @@ private extension AnimeListViewModel {
         NetworkLogStore.shared.logUIEvent("anime_list_cache_invalidate scope=all")
     }
 }
-

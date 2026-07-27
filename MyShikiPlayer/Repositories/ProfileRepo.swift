@@ -36,7 +36,13 @@ final class ProfileRepo: ProfileRepository {
     // versions whose favourites were the lighter UserFavouriteAnime shape.
     private static let diskFilename = "profile-v2.json"
 
-    private init() {
+    private let session: URLSession
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscriptions have to go away with them.
+    private let cacheObservers = CacheObserverBag()
+
+    init(session: URLSession = .shared) {
+        self.session = session
         let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("profile_repo_disk_loaded users=\(loaded)")
@@ -69,9 +75,10 @@ final class ProfileRepo: ProfileRepository {
         }
         if let existing = pending[userId] { return try await existing.value }
 
+        let session = self.session
         let task = Task<Snapshot, Error> { [weak self] in
             defer { self?.pending.removeValue(forKey: userId) }
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             async let profile = rest.userProfile(id: userId)
             async let favourites = rest.userFavourites(id: userId)
             let rawFavs = (try? await favourites)?.animes ?? []
@@ -160,11 +167,11 @@ final class ProfileRepo: ProfileRepository {
 
     private func subscribeToCacheEvents() {
         // user-rate stats / favorites shift — invalidate by userId.
-        CacheEvents.observeAnimeMutation { [weak self] _, userId in
+        cacheObservers.add(CacheEvents.observeAnimeMutation { [weak self] _, userId in
             self?.invalidate(userId: userId)
-        }
-        CacheEvents.observeClearAll { [weak self] in
+        })
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 }

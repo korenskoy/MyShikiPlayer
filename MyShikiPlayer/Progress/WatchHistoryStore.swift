@@ -6,8 +6,10 @@
 //  (one record per title with the latest position — for resume), this is
 //  a CHRONOLOGICAL log: started / progress / completed.
 //
-//  Persistence — JSON at ~/Library/Caches/MyShikiPlayer/watch-history.json,
-//  rotated on overflow (oldest events evicted).
+//  Persistence — JSON at ~/Library/Caches/MyShikiPlayer/<filename>, rotated
+//  on overflow (oldest events evicted). This is user data, not cache: every
+//  mutation is written through immediately and it deliberately does not go
+//  through `DiskBackup`'s coalesced writes.
 //
 
 import Foundation
@@ -42,12 +44,16 @@ final class WatchHistoryStore: ObservableObject {
 
     private let maxEvents = 500
     private let progressThrottle: TimeInterval = 30
-    private let filename = "watch-history.json"
+    private let filename: String
 
     /// Latest `progress` timestamp per (shikimoriId, episode) — used for throttling.
     private var lastProgressAt: [String: Date] = [:]
 
-    private init() {
+    /// `filename` is injectable so a test can spin up a throwaway journal
+    /// instead of writing into the one the app shows in History.
+    /// Production code keeps using `shared`.
+    init(filename: String = "watch-history.json") {
+        self.filename = filename
         restore()
     }
 

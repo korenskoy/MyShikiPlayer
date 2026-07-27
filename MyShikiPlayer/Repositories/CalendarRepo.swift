@@ -25,15 +25,21 @@ final class CalendarRepo: CalendarRepository {
 
     private static let diskFilename = "calendar.json"
 
-    private init() {
+    private let session: URLSession
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscription has to go away with them.
+    private let cacheObservers = CacheObserverBag()
+
+    init(session: URLSession = .shared) {
+        self.session = session
         let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("calendar_repo_disk_loaded count=\(loaded)")
         }
         // The schedule does not depend on user-rate/favorite — only listen for wipe.
-        CacheEvents.observeClearAll { [weak self] in
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidate()
-        }
+        })
     }
 
     private let cache = TTLCache<String, [CalendarEntry]>(ttl: 30 * 60)
@@ -54,9 +60,10 @@ final class CalendarRepo: CalendarRepository {
         }
         if let existing = pending { return try await existing.value }
 
+        let session = self.session
         let task = Task<[CalendarEntry], Error> { [weak self] in
             defer { self?.pending = nil }
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             let entries = try await rest.calendar()
             self?.cache.set(entries, for: Self.cacheKey)
             NetworkLogStore.shared.logUIEvent("calendar_repo_loaded count=\(entries.count)")

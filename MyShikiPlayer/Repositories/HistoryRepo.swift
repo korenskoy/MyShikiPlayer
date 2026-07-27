@@ -33,25 +33,34 @@ protocol HistoryRepository: AnyObject {
 final class HistoryRepo: HistoryRepository {
     static let shared = HistoryRepo()
 
-    private static let diskFilename = "history.json"
     nonisolated static let firstPageLimit = 50
 
     private let cache = TTLCache<Int, [UserHistoryEntry]>(ttl: 5 * 60)
     private var pending: [Int: Task<[UserHistoryEntry], Error>] = [:]
+    private let session: URLSession
+    private let diskFilename: String
+    /// Instances other than `shared` are short-lived (tests), so the
+    /// cache-event subscriptions have to go away with them.
+    private let cacheObservers = CacheObserverBag()
 
-    private init() {
-        let loaded = DiskBackup.load(into: cache, filename: Self.diskFilename)
+    /// `session` and `diskFilename` are injectable so a test can drive the repo
+    /// through a stubbed `URLProtocol` and its own throwaway backup file.
+    /// Production keeps using `shared`.
+    init(session: URLSession = .shared, diskFilename: String = "history.json") {
+        self.session = session
+        self.diskFilename = diskFilename
+        let loaded = DiskBackup.load(into: cache, filename: diskFilename)
         if loaded > 0 {
             NetworkLogStore.shared.logUIEvent("history_repo_disk_loaded users=\(loaded)")
         }
         // Any user-rate/favorite mutation shifts history — invalidate at the
         // user level (the payload carries userId and the cache is keyed by it).
-        CacheEvents.observeAnimeMutation { [weak self] _, userId in
+        cacheObservers.add(CacheEvents.observeAnimeMutation { [weak self] _, userId in
             self?.invalidate(userId: userId)
-        }
-        CacheEvents.observeClearAll { [weak self] in
+        })
+        cacheObservers.add(CacheEvents.observeClearAll { [weak self] in
             self?.invalidateAll()
-        }
+        })
     }
 
     // MARK: - Public
@@ -73,9 +82,10 @@ final class HistoryRepo: HistoryRepository {
         }
         if let existing = pending[userId] { return try await existing.value }
 
+        let session = self.session
         let task = Task<[UserHistoryEntry], Error> { [weak self] in
             defer { self?.pending.removeValue(forKey: userId) }
-            let rest = ShikimoriRESTClient(configuration: configuration)
+            let rest = ShikimoriRESTClient(configuration: configuration, session: session)
             let entries = try await rest.userHistory(
                 id: userId,
                 targetType: "Anime",
@@ -84,7 +94,7 @@ final class HistoryRepo: HistoryRepository {
             )
             self?.cache.set(entries, for: userId)
             if let strongSelf = self {
-                DiskBackup.save(cache: strongSelf.cache, filename: Self.diskFilename)
+                DiskBackup.save(cache: strongSelf.cache, filename: strongSelf.diskFilename)
             }
             NetworkLogStore.shared.logUIEvent(
                 "history_repo_loaded user=\(userId) count=\(entries.count)"
@@ -103,7 +113,7 @@ final class HistoryRepo: HistoryRepository {
         page: Int,
         limit: Int = firstPageLimit
     ) async throws -> [UserHistoryEntry] {
-        let rest = ShikimoriRESTClient(configuration: configuration)
+        let rest = ShikimoriRESTClient(configuration: configuration, session: session)
         let entries = try await rest.userHistory(
             id: userId,
             targetType: "Anime",
@@ -122,13 +132,13 @@ final class HistoryRepo: HistoryRepository {
         cache.invalidate(userId)
         pending[userId]?.cancel()
         pending.removeValue(forKey: userId)
-        DiskBackup.save(cache: cache, filename: Self.diskFilename)
+        DiskBackup.save(cache: cache, filename: diskFilename)
     }
 
     func invalidateAll() {
         cache.invalidateAll()
         pending.values.forEach { $0.cancel() }
         pending.removeAll()
-        DiskBackup.remove(filename: Self.diskFilename)
+        DiskBackup.remove(filename: diskFilename)
     }
 }
