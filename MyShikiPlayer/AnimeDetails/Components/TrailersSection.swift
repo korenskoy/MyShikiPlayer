@@ -106,7 +106,11 @@ struct TrailersSection: View {
     }
 
     private func open(_ video: AnimeVideoREST) {
-        guard let raw = video.url, let url = URL(string: raw) else { return }
+        // The URL comes straight from the API payload, so it goes through the
+        // same http/https/mailto allowlist as every other externally-sourced
+        // link before it reaches NSWorkspace.
+        guard let raw = video.url, let url = URL(string: raw),
+              ShikimoriText.isSafeExternalURL(url) else { return }
         NSWorkspace.shared.open(url)
     }
 

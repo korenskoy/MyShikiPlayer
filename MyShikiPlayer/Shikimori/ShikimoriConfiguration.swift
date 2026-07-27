@@ -127,7 +127,7 @@ extension ShikimoriConfiguration {
 /// an empty / invalid override silently falls back to that default, so the
 /// app keeps working if the user clears the field.
 enum ShikimoriHostsStore {
-    enum Field: String {
+    enum Field: String, CaseIterable {
         case api
         case oauth
 
@@ -174,6 +174,34 @@ enum ShikimoriHostsStore {
         guard !value.isEmpty, value.contains(".") else { return false }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:")
         return value.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    // MARK: - Known hosts
+
+    /// Every public host Shikimori has served from. Mirrors get banned and
+    /// replaced over time, so historical ones must keep resolving: bodies and
+    /// image links stored under an old host are still valid content.
+    static let knownMirrors = ["shikimori.io", "shikimori.one", "shikimori.me", "shikimori.org"]
+
+    /// True when `host` is a known mirror (or a subdomain of one) or the host
+    /// the user pointed the app at in Settings. Single source of truth for
+    /// "this URL belongs to Shikimori" checks across the app.
+    static func isKnownHost(_ host: String?, defaults: UserDefaults = .standard) -> Bool {
+        guard let host = host?.lowercased(), !host.isEmpty else { return false }
+        if knownMirrors.contains(where: { host == $0 || host.hasSuffix("." + $0) }) { return true }
+        return Field.allCases.contains { field in
+            overrideURL(raw: defaults.string(forKey: field.defaultsKey))?.host?.lowercased() == host
+        }
+    }
+
+    /// Origin (`https://host`, no trailing slash) used to resolve root-relative
+    /// links found in server-rendered Shikimori HTML. Follows the user's host
+    /// override so a mirror migration doesn't leave parsed bodies pointing at
+    /// a dead host.
+    static func webOrigin(configuration: ShikimoriConfiguration = .current()) -> String {
+        var base = configuration.oauthBaseURL.absoluteString
+        if base.hasSuffix("/") { base.removeLast() }
+        return base
     }
 
     /// Mirrors `KodikHostsStore.isAcceptableInput` for the Settings TextField:

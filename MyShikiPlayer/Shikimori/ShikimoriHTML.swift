@@ -313,7 +313,7 @@ enum ShikimoriHTML {
             // Unknown entity kind — fall through to plain external link below.
         }
         guard let href = try? element.attr("href"), !href.isEmpty else { return }
-        let absolute = href.hasPrefix("/") ? "https://shikimori.io" + href : href
+        let absolute = href.hasPrefix("/") ? ShikimoriHostsStore.webOrigin() + href : href
         guard let url = URL(string: absolute), ShikimoriText.isSafeExternalURL(url) else { return }
         let label = (try? element.text()) ?? url.absoluteString
         inlines.append(.external(url: url, label: label.isEmpty ? url.absoluteString : label))
@@ -400,7 +400,7 @@ enum ShikimoriHTML {
     /// `[posted this](shot.jpg)` into a freestanding image.
     private static func anchorAsImageURL(_ element: Element) -> URL? {
         guard let href = try? element.attr("href"), !href.isEmpty,
-              let url = URL(string: href.hasPrefix("/") ? "https://shikimori.io" + href : href),
+              let url = URL(string: href.hasPrefix("/") ? ShikimoriHostsStore.webOrigin() + href : href),
               ShikimoriText.isSafeExternalURL(url),
               ShikimoriText.isImageURL(url) else { return nil }
         let label = ((try? element.text()) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

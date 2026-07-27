@@ -15,9 +15,10 @@ struct ContentView: View {
     }
 
     @EnvironmentObject private var shikimoriAuth: ShikimoriAuthController
-    @StateObject private var networkLogs = NetworkLogStore.shared
-    @StateObject private var updates = UpdateCheckService.shared
-    @StateObject private var redirectConsent = OAuthRedirectConsentCoordinator.shared
+    // Singletons outlive the view, so they are observed, not owned.
+    @ObservedObject private var networkLogs = NetworkLogStore.shared
+    @ObservedObject private var updates = UpdateCheckService.shared
+    @ObservedObject private var redirectConsent = OAuthRedirectConsentCoordinator.shared
     @State private var isLogPanelExpanded = false
     @AppStorage("app.theme") private var themeId: String = AppTheme.autoOtakuId
     @AppStorage("settings.networkLogsEnabled") private var networkLogsEnabled: Bool = false

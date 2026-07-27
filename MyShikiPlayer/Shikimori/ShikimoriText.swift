@@ -27,19 +27,14 @@ enum ShikimoriText {
 
     /// Heuristic for "this URL points at an image we can render inline".
     /// Two signals: a known image extension on the path, or a Shikimori-hosted
-    /// `/system/...` upload (user images on shikimori.io/.one/.me — they always
-    /// resolve to a JPEG/PNG even though the extension is sometimes uppercase
-    /// or wrapped in a query string).
+    /// `/system/...` upload (host checked against every known mirror via
+    /// `ShikimoriHostsStore` — those always resolve to a JPEG/PNG even though
+    /// the extension is sometimes uppercase or wrapped in a query string).
     static func isImageURL(_ url: URL) -> Bool {
         let path = url.path.lowercased()
         let exts = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
         if exts.contains(where: { path.hasSuffix($0) }) { return true }
-        if let host = url.host?.lowercased(),
-           host == "shikimori.io" || host == "shikimori.one" || host == "shikimori.me",
-           path.hasPrefix("/system/") {
-            return true
-        }
-        return false
+        return ShikimoriHostsStore.isKnownHost(url.host) && path.hasPrefix("/system/")
     }
 
     /// Coarse BB-code stripping: keeps the content, removes the tags themselves.
