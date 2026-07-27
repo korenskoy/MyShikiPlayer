@@ -175,10 +175,10 @@ struct KodikVideoLinksResolver {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await fetchBounded(request)
         } catch {
             await log("resolve_fail reason=transport error=\(error.localizedDescription)")
-            throw KodikSourceError.network(error)
+            throw error
         }
         guard let http = response as? HTTPURLResponse else {
             await log("resolve_fail reason=non_http_response")
@@ -205,7 +205,7 @@ struct KodikVideoLinksResolver {
         return links
     }
 
-    private func extractSourceCandidates(from rawSources: Any) -> [String] {
+    func extractSourceCandidates(from rawSources: Any) -> [String] {
         // Known Kodik shapes seen in the wild:
         // - [[{"src": "..."}]]
         // - {"src": "..."} / {"src": ["..."]}
@@ -232,7 +232,7 @@ struct KodikVideoLinksResolver {
         return []
     }
 
-    private func decodeSourceURL(from srcRaw: String) -> (urlString: String, strategy: String)? {
+    func decodeSourceURL(from srcRaw: String) -> (urlString: String, strategy: String)? {
         if let normalized = normalizeDirectURL(srcRaw) {
             return (normalized, "direct")
         }
@@ -260,7 +260,7 @@ struct KodikVideoLinksResolver {
         return String(data: data, encoding: .utf8)
     }
 
-    private func normalizeBase64(_ value: String) -> String {
+    func normalizeBase64(_ value: String) -> String {
         var output = value.replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
         let remainder = output.count % 4
@@ -270,7 +270,7 @@ struct KodikVideoLinksResolver {
         return output
     }
 
-    private func normalizeDirectURL(_ raw: String) -> String? {
+    func normalizeDirectURL(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         if trimmed.hasPrefix("//") {
@@ -279,10 +279,23 @@ struct KodikVideoLinksResolver {
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
             return trimmed
         }
-        if trimmed.contains(".m3u8") || trimmed.contains(".mp4") || trimmed.contains("/") {
+        if trimmed.contains(".m3u8") || trimmed.contains(".mp4") || hasHostLikePrefix(trimmed) {
             return "https://\(trimmed)"
         }
         return nil
+    }
+
+    /// True when the text has a `/` and the segment before it looks like a
+    /// host, i.e. contains a dot. Bare "contains a slash" used to stand in for
+    /// this and silently swallowed encoded payloads: standard base64
+    /// (`A-Za-z0-9+/=`) contains `/`, so a payload was handed back as if it
+    /// were a link whenever the encoder happened to emit one. Neither base64
+    /// alphabet contains a dot, which makes this a clean split rather than
+    /// another heuristic. Path-only input (`/x/y`) has an empty first segment
+    /// and is rejected too — it used to yield a host-less `https:///x/y`.
+    private func hasHostLikePrefix(_ text: String) -> Bool {
+        guard let slash = text.firstIndex(of: "/") else { return false }
+        return text[..<slash].contains(".")
     }
 
     /// Parses Kodik's `parseSkipButtons("00:00-01:30,21:00-22:30","...")`
@@ -401,13 +414,7 @@ struct KodikVideoLinksResolver {
             accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             referer: configuration.refererURLString
         )
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw KodikSourceError.network(error)
-        }
+        let (data, response) = try await fetchBounded(request)
         guard let http = response as? HTTPURLResponse else {
             throw KodikSourceError.parse("non-HTTP response \(urlString)")
         }
@@ -418,6 +425,21 @@ struct KodikVideoLinksResolver {
             throw KodikSourceError.parse("non-utf8 response \(urlString)")
         }
         return text
+    }
+
+    /// Shared transport step for the scraper: a size-capped read plus the
+    /// Kodik-flavoured error mapping. An oversized body is a `parse` failure,
+    /// not a `network` one — retrying through the fallback chain would just
+    /// pull the same garbage again.
+    private func fetchBounded(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.boundedData(for: request, limit: ResponseSizeLimit.scrapedPage)
+        } catch BoundedResponseError.tooLarge(let limit) {
+            await log("fetch_oversize limit=\(limit)")
+            throw KodikSourceError.parse("response exceeds \(limit) bytes")
+        } catch {
+            throw KodikSourceError.network(error)
+        }
     }
 
     private func makeRequest(url: URL, accept: String, referer: String) -> URLRequest {
@@ -449,7 +471,7 @@ struct KodikVideoLinksResolver {
         return ns.substring(with: range)
     }
 
-    private func rotateLettersBy18(_ text: String) -> String {
+    func rotateLettersBy18(_ text: String) -> String {
         let aUpper = UnicodeScalar("A").value
         let zUpper = UnicodeScalar("Z").value
         let aLower = UnicodeScalar("a").value
