@@ -47,8 +47,9 @@ final class ResumeCoordinator {
     }
 
     /// Persists the live position both to the resume cache and the history
-    /// feed. Called from PlaybackSession.saveProgressSnapshot during normal
-    /// playback ticks and on player close.
+    /// feed. Called from PlaybackSession on the throttled playback tick
+    /// (`persistProgressIfDue`, every ~15s) and once more on player close.
+    /// The history store applies a second, coarser throttle of its own.
     func recordProgress(
         shikimoriId: Int,
         episode: Int,

@@ -268,10 +268,16 @@ final class PlayerEngine: ObservableObject {
             toleranceBefore: .positiveInfinity,
             toleranceAfter: .positiveInfinity
         ) { [weak self] _ in
-            guard let self else { return }
-            self.pendingSeekSeconds = nil
-            if self.player.timeControlStatus != .waitingToPlayAtSpecifiedRate {
-                self.isBuffering = false
+            // AVFoundation does not promise a queue for this completion, so the
+            // hop is mandatory: `pendingSeekSeconds` and `isBuffering` are
+            // @Published on a @MainActor type, and publishing them off-main can
+            // drive a SwiftUI update from the wrong thread.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.pendingSeekSeconds = nil
+                if self.player.timeControlStatus != .waitingToPlayAtSpecifiedRate {
+                    self.isBuffering = false
+                }
             }
         }
     }

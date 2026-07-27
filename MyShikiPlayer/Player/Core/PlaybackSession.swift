@@ -95,6 +95,17 @@ final class PlaybackSession: ObservableObject {
     /// standard (skips ending + credits). Tunable by tests / future UI.
     var watchedThreshold: Double = 0.85
 
+    /// How often the live position is flushed while playing. The engine clock
+    /// ticks ~4x per second, so every tick cannot touch UserDefaults; 15s caps
+    /// the worst-case loss after a crash / force-quit at one interval.
+    /// Tunable by tests.
+    var progressSaveInterval: TimeInterval = 15
+
+    /// Injected so tests can advance time without sleeping.
+    private let now: () -> Date
+    private var lastProgressSaveAt: Date?
+    private var lastSavedPosition: Double?
+
     /// Idempotency — which episodes were already reported during this session.
     /// Reset by `prepare()` (new title / fresh load).
     private var reportedWatchedEpisodes: Set<Int> = []
@@ -124,8 +135,13 @@ final class PlaybackSession: ObservableObject {
         fallbackHintDismissTask?.cancel()
     }
 
-    init(sourceRegistry: SourceRegistry = .live, progressStore: WatchProgressStore? = nil) {
+    init(
+        sourceRegistry: SourceRegistry = .live,
+        progressStore: WatchProgressStore? = nil,
+        now: @escaping () -> Date = Date.init
+    ) {
         self.sourceRegistry = sourceRegistry
+        self.now = now
         self.resumeCoordinator = ResumeCoordinator(progressStore: progressStore ?? WatchProgressStore())
         self.prefetchCoordinator = PrefetchCoordinator(
             sourceRegistry: sourceRegistry,
@@ -138,9 +154,14 @@ final class PlaybackSession: ObservableObject {
             }
             .store(in: &cancellables)
         engine.$currentTime
-            .sink { [weak self] _ in
-                self?.maybeTriggerPrefetch()
-                self?.maybeAutoSkipSection()
+            .sink { [weak self] time in
+                guard let self else { return }
+                self.maybeTriggerPrefetch()
+                self.maybeAutoSkipSection()
+                // `@Published` publishes in `willSet`, so `engine.currentTime`
+                // still holds the previous tick inside this closure — persist
+                // the value the publisher carries instead.
+                self.persistProgressIfDue(position: time, duration: self.engine.duration)
             }
             .store(in: &cancellables)
         // Refresh the cached toggle only when UserDefaults actually changes.
@@ -180,6 +201,7 @@ final class PlaybackSession: ObservableObject {
         }
         prefetchCoordinator.resetTriggerFlag()
         resetAutoSkipFlags()
+        resetProgressSaveThrottle()
         currentShikimoriId = shikimoriId
         currentEpisode = episode
         self.preferredTranslationId = preferredTranslationId
@@ -357,24 +379,73 @@ final class PlaybackSession: ObservableObject {
         lastError = .streamBuildFailed(message)
     }
 
+    /// Immediate flush of the live position. Called when the player window
+    /// closes; regular playback is covered by `persistProgressIfDue`.
     func saveProgressSnapshot() {
+        persistProgress(position: engine.currentTime, duration: engine.duration)
+    }
+
+    /// Throttled flush driven by the engine clock, so a crash or force-quit
+    /// mid-episode costs at most `progressSaveInterval` of progress instead of
+    /// the whole session.
+    ///
+    /// Internal rather than private because tests cannot fake the engine clock:
+    /// `PlayerEngine.currentTime` is `private(set)` and only a live AVPlayer
+    /// moves it.
+    func persistProgressIfDue(position: Double, duration: Double) {
+        guard duration > 0, position > 1 else { return }
+        // `prepare` moves `currentEpisode` forward before the engine loads the
+        // new stream, so for the whole resolve the clock still reports the
+        // PREVIOUS episode's position — usually near the end. Persisting it
+        // here would attribute it to the episode the user only just opened and
+        // report that one as watched.
+        guard !isPreparing else { return }
+        // Paused or stalled playback keeps the same position; rewriting an
+        // identical record buys nothing.
+        if let lastSavedPosition, abs(position - lastSavedPosition) < 0.5 { return }
+        let timestamp = now()
+        if let lastProgressSaveAt, timestamp.timeIntervalSince(lastProgressSaveAt) < progressSaveInterval { return }
+        lastProgressSaveAt = timestamp
+        lastSavedPosition = position
+        persistProgress(position: position, duration: duration)
+    }
+
+    /// Single writer for playback progress: resume cache, history feed and the
+    /// watched report. Position and duration are parameters because the
+    /// periodic path receives them from the publisher, not from the engine.
+    private func persistProgress(position: Double, duration: Double) {
         guard let id = currentShikimoriId else { return }
-        resumeCoordinator.recordProgress(
-            shikimoriId: id,
-            episode: currentEpisode,
-            title: selectedSource?.title ?? "",
-            position: engine.currentTime,
-            duration: engine.duration
-        )
+        // `stopAndUnload` zeroes the engine clock, and PlayerView.onDisappear
+        // fires after windowWillClose already saved — without this guard the
+        // second pass would overwrite a valid resume point with 0.
+        guard duration > 0, position > 1 else { return }
+        // Past the threshold `markCompleted` drops the resume point on purpose.
+        // Writing the position again on the next tick would resurrect it and
+        // make reopening the episode jump straight to the credits.
+        if !reportedWatchedEpisodes.contains(currentEpisode) {
+            resumeCoordinator.recordProgress(
+                shikimoriId: id,
+                episode: currentEpisode,
+                title: selectedSource?.title ?? "",
+                position: position,
+                duration: duration
+            )
+        }
         reportWatchedIfSufficient(
             episode: currentEpisode,
-            position: engine.currentTime,
-            duration: engine.duration
+            position: position,
+            duration: duration
         )
     }
 
+    private func resetProgressSaveThrottle() {
+        lastProgressSaveAt = nil
+        lastSavedPosition = nil
+    }
+
     /// If `position / duration >= watchedThreshold` — calls `onEpisodeWatched(episode)` exactly once.
-    /// Invoked both when switching between episodes (from `selectEpisodeAndLoad`) and when closing the player.
+    /// Invoked from every progress flush (periodic tick and player close) and
+    /// when switching between episodes (from `selectEpisodeAndLoad`).
     func reportWatchedIfSufficient(episode: Int, position: Double, duration: Double) {
         guard duration > 0, position > 0, episode >= 1 else { return }
         let ratio = position / duration

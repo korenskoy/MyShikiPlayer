@@ -14,6 +14,11 @@ final class PlayerWindowCoordinator: NSObject {
     private var onClose: (() -> Void)?
     private var sessionObserver: AnyCancellable?
 
+    /// Opens the player. `windowWillClose` drops `playerWindow`, so every open
+    /// after a close builds a fresh NSWindow — the reuse branch below only
+    /// covers picking another episode / title while the window is still up
+    /// (the SwiftUI root view is swapped in place, so PlayerView is updated,
+    /// not re-created).
     func open(session: PlaybackSession, onClose: @escaping () -> Void) {
         self.onClose = onClose
 
@@ -50,6 +55,9 @@ final class PlayerWindowCoordinator: NSObject {
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        // The coordinator holds the window strongly, so AppKit must not release
+        // it on close as well — that is an over-release under ARC, not a reuse
+        // mechanism. The reference is dropped in `windowWillClose`.
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()

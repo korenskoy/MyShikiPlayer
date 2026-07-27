@@ -130,14 +130,10 @@ struct PlayerView: View {
         .onDisappear {
             cancelAutoHide()
             subtitlesCancellable = nil
-            // The PlayerWindowCoordinator reuses the same NSWindow across
-            // opens (`isReleasedWhenClosed = false`), so leaving the level
-            // at `.floating` would leak the pin into the next session
-            // before `onWindow` reapplies the user's stored choice. Reset.
-            session.engine.playerHostWindow?.level = .normal
-            // Save the position BEFORE stopAndUnload — otherwise it will reset
-            // engine.currentTime to 0, and progressStore will write a zero
-            // position, overwriting the correct entry from windowWillClose.
+            // Save the position BEFORE stopAndUnload: it zeroes
+            // engine.currentTime, and the last seconds watched since the
+            // periodic flush would be lost (persistProgress itself refuses to
+            // write a zero position over a valid resume point).
             session.saveProgressSnapshot()
             session.engine.stopAndUnload()
         }
@@ -167,7 +163,7 @@ struct PlayerView: View {
     private func requestClose() {
         if let onRequestClose {
             // Do not call stopAndUnload before the window closes: windowWillClose
-            // invokes syncProgressFromPlayback which needs the live currentTime/duration.
+            // invokes saveProgressSnapshot, which needs the live currentTime/duration.
             onRequestClose()
         } else {
             session.engine.stopAndUnload()
