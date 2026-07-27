@@ -37,7 +37,7 @@ struct VTTLoader: Sendable {
 
     let data: Data
     do {
-      (data, _) = try await httpClient.data(for: request)
+      (data, _) = try await httpClient.data(for: request, byteLimit: ResponseSizeLimit.subtitle)
     } catch {
       throw VTTLoaderError.downloadFailed(underlying: error)
     }

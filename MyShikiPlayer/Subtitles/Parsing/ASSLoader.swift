@@ -29,7 +29,7 @@ struct ASSLoader: Sendable {
     Anime365Endpoint.endpointFetchHeaders().forEach { request.setValue($1, forHTTPHeaderField: $0) }
 
     do {
-      let (data, _) = try await httpClient.data(for: request)
+      let (data, _) = try await httpClient.data(for: request, byteLimit: ResponseSizeLimit.subtitle)
       return data
     } catch {
       throw ASSLoaderError.downloadFailed(underlying: error)

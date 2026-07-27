@@ -156,7 +156,10 @@ actor ImageCacheStore {
             return image
         }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.boundedData(
+                for: URLRequest(url: url),
+                limit: ResponseSizeLimit.image
+            )
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 return nil
             }
@@ -166,6 +169,11 @@ actor ImageCacheStore {
             try? data.write(to: fileURL, options: [.atomic])
             memoryCache.setObject(image, forKey: url as NSURL)
             return image
+        } catch BoundedResponseError.tooLarge(let limit) {
+            NetworkLogStore.shared.logAppError(
+                "image_cache oversize limit=\(limit) url=\(NetworkLogStore.maskedURLString(url))"
+            )
+            return nil
         } catch {
             return nil
         }

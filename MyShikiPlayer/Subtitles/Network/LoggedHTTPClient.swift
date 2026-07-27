@@ -18,34 +18,60 @@ struct LoggedHTTPClient: Sendable {
   /// Caller still inspects the HTTPURLResponse status code for non-2xx handling.
   func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
     let startedAt = Date()
-    let method = request.httpMethod ?? "GET"
-    let url = request.url
 
     let data: Data
     let response: URLResponse
     do {
       (data, response) = try await session.data(for: request)
     } catch {
-      let duration = Date().timeIntervalSince(startedAt)
-      let desc = error.localizedDescription
-      Task { @MainActor in
-        NetworkLogStore.shared.log(
-          method: method,
-          url: url,
-          statusCode: nil,
-          duration: duration,
-          responseBytes: nil,
-          responsePreview: nil,
-          errorDescription: desc
-        )
-      }
+      log(request, startedAt: startedAt, error: error)
       throw error
     }
 
     let http = response as? HTTPURLResponse
+    log(request, startedAt: startedAt, statusCode: http?.statusCode, byteCount: data.count)
+
+    guard let http else {
+      throw URLError(.badServerResponse)
+    }
+    return (data, http)
+  }
+
+  /// Same contract as `data(for:)`, but refuses to buffer more than `byteLimit` bytes.
+  ///
+  /// The ceiling itself is enforced by `boundedData(for:limit:)`, which is the app-wide
+  /// primitive for downloads from hosts we do not control; this wrapper exists only to keep
+  /// subtitle traffic in the network log like every other request here. Oversized responses
+  /// surface as `BoundedResponseError.tooLarge`.
+  func data(for request: URLRequest, byteLimit: Int) async throws -> (Data, HTTPURLResponse) {
+    let startedAt = Date()
+
+    do {
+      let (data, response) = try await session.boundedData(for: request, limit: byteLimit)
+      guard let http = response as? HTTPURLResponse else {
+        throw URLError(.badServerResponse)
+      }
+      log(request, startedAt: startedAt, statusCode: http.statusCode, byteCount: data.count)
+      return (data, http)
+    } catch {
+      log(request, startedAt: startedAt, error: error)
+      throw error
+    }
+  }
+
+  // MARK: - Logging
+
+  private func log(
+    _ request: URLRequest,
+    startedAt: Date,
+    statusCode: Int? = nil,
+    byteCount: Int? = nil,
+    error: Error? = nil
+  ) {
     let duration = Date().timeIntervalSince(startedAt)
-    let byteCount = data.count
-    let statusCode = http?.statusCode
+    let method = request.httpMethod ?? "GET"
+    let url = request.url
+    let errorDescription = error?.localizedDescription
     Task { @MainActor in
       NetworkLogStore.shared.log(
         method: method,
@@ -54,13 +80,8 @@ struct LoggedHTTPClient: Sendable {
         duration: duration,
         responseBytes: byteCount,
         responsePreview: nil,
-        errorDescription: nil
+        errorDescription: errorDescription
       )
     }
-
-    guard let http else {
-      throw URLError(.badServerResponse)
-    }
-    return (data, http)
   }
 }
