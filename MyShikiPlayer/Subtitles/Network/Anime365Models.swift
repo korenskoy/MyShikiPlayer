@@ -26,7 +26,10 @@ struct Anime365Series: Codable, Sendable {
 struct Anime365EpisodeSummary: Codable, Sendable {
   let id: Int
   let isActive: Int
-  let episodeInt: String
+  /// Anime365 sends this as a JSON number; older responses sent a string. Accept both —
+  /// a type mismatch here drops the whole episode list and the search reports
+  /// "episode not found" for every title.
+  let episodeInt: Double?
   let episodeType: String
 
   enum CodingKeys: String, CodingKey {
@@ -35,22 +38,28 @@ struct Anime365EpisodeSummary: Codable, Sendable {
     case episodeInt
     case episodeType
   }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(Int.self, forKey: .id)
+    isActive = try container.decode(Int.self, forKey: .isActive)
+    episodeType = try container.decode(String.self, forKey: .episodeType)
+    if let number = try? container.decode(Double.self, forKey: .episodeInt) {
+      episodeInt = number
+    } else {
+      episodeInt = (try? container.decode(String.self, forKey: .episodeInt)).flatMap(Double.init)
+    }
+  }
 }
 
 // MARK: - Episode detail (from /episodes/{id})
 
 struct Anime365EpisodeDetail: Codable, Sendable {
   let id: Int
-  let isActive: Int
-  let episodeInt: String
-  let episodeType: String
   let translations: [Anime365Translation]
 
   enum CodingKeys: String, CodingKey {
     case id
-    case isActive
-    case episodeInt
-    case episodeType
     case translations
   }
 }
@@ -115,9 +124,10 @@ struct Anime365DataEnvelope<T: Decodable>: Decodable {
   let value: T
 
   init(from decoder: Decoder) throws {
-    if let container = try? decoder.container(keyedBy: DataKey.self),
-       let nested = try? container.decode(T.self, forKey: .data) {
-      value = nested
+    // Only the absence of `data` justifies the bare-payload fallback. Swallowing a
+    // decode failure here turns a type mismatch into silently empty data.
+    if let container = try? decoder.container(keyedBy: DataKey.self), container.contains(.data) {
+      value = try container.decode(T.self, forKey: .data)
     } else {
       value = try T(from: decoder)
     }

@@ -12,7 +12,7 @@ enum Anime365Endpoint {
 
   static let userAgentRestApi = "Anime365Api Library"
   static let userAgentEndpointFetch =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
   static let cacheControlValue = "public, max-age=14400"
 
   // MARK: - Request builders
@@ -54,10 +54,13 @@ enum Anime365Endpoint {
     return URL(string: "\(base)/episodes/\(seriaId)")
   }
 
-  /// ASS subtitle file URL.
+  /// ASS subtitle URL.
+  ///
+  /// `/episodeTranslations/{id}.ass` only serves uploads that were ASS to begin with and
+  /// 404s for everything else; this path converts on the server and covers every track.
   static func assURL(host: String, translationId: Int) -> URL? {
     let base = host.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    return URL(string: "\(base)/episodeTranslations/\(translationId).ass?willcache")
+    return URL(string: "\(base)/translations/ass/\(translationId)")
   }
 
   /// VTT subtitle stream URL.

@@ -208,7 +208,7 @@ final class Anime365Service {
 
 // MARK: - Helpers
 
-private func episodeMatches(_ episodeInt: String, requested: Int) -> Bool {
-  guard let parsed = Double(episodeInt), parsed.isFinite else { return false }
-  return parsed == Double(requested)
+private func episodeMatches(_ episodeInt: Double?, requested: Int) -> Bool {
+  guard let episodeInt, episodeInt.isFinite else { return false }
+  return episodeInt == Double(requested)
 }

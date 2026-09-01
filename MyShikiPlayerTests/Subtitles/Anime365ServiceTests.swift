@@ -263,7 +263,7 @@ final class Anime365ServiceTests: XCTestCase {
     let service = await makeService { request in
       let url = request.url!.absoluteString
       if request.httpMethod == "HEAD" {
-        return (makeResponse(request.url!, statusCode: url.contains("/600.ass") ? 200 : 404), Data())
+        return (makeResponse(request.url!, statusCode: url.hasSuffix("/ass/600") ? 200 : 404), Data())
       }
       if url.contains("/series/6?fields=episodes") {
         return (makeResponse(request.url!), jsonData(seriesDetail))
@@ -277,11 +277,41 @@ final class Anime365ServiceTests: XCTestCase {
     XCTAssertEqual(result.subtitles.map(\.translationId), [600])
   }
 
+  // MARK: - episodeInt wire format
+
+  /// Anime365 switched `episodeInt` from a string to a JSON number. Decoding it as a
+  /// string emptied the episode list and every lookup failed with "episode not found".
+  func test_numericEpisodeIntIsMatched() async throws {
+    let seriesData: [String: Any] = ["id": 7, "myAnimeListId": 70]
+    let seriesDetail: [String: Any] = [
+      "id": 7,
+      "episodes": [["id": 71, "isActive": 1, "episodeInt": 2, "episodeType": "tv"]]
+    ]
+    let episodeDetail: [String: Any] = [
+      "id": 71,
+      "translations": [["id": 700, "type": "subru", "typeKind": "sub", "isActive": 1]]
+    ]
+
+    let service = await makeService { request in
+      let url = request.url!.absoluteString
+      if url.contains("/series/7?fields=episodes") {
+        return (makeResponse(request.url!), jsonData(seriesDetail))
+      } else if url.contains("/episodes/") {
+        return (makeResponse(request.url!), jsonData(episodeDetail))
+      }
+      return (makeResponse(request.url!), jsonData([seriesData]))
+    }
+
+    let result = try await service.searchSubtitles(shikimoriId: 70, episode: 2)
+    XCTAssertEqual(result.seriaId, 71)
+    XCTAssertEqual(result.subtitles.map(\.translationId), [700])
+  }
+
   // MARK: - URL building
 
   func test_assURLShape() {
     let url = Anime365Endpoint.assURL(host: "https://media.example.com", translationId: 42)
-    XCTAssertEqual(url?.absoluteString, "https://media.example.com/episodeTranslations/42.ass?willcache")
+    XCTAssertEqual(url?.absoluteString, "https://media.example.com/translations/ass/42")
   }
 
   func test_vttURLShape() {
