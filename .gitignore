@@ -36,3 +36,7 @@ private_docs/
 
 # Claude Code workspaces
 .claude/
+
+# Other agent tooling workspaces
+.agents/
+.codex/
