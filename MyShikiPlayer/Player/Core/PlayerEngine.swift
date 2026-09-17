@@ -87,6 +87,11 @@ final class PlayerEngine: ObservableObject {
         lastLoadError = nil
         autoplayPending = autoPlay
         pendingSeekSeconds = nil
+        // The flag belongs to the item that just went away. Left true, a seek
+        // issued before the new item reports `.readyToPlay` would be applied
+        // straight to it instead of being queued — that is how a next episode
+        // could start at the previous one's end position.
+        canStartPlayback = false
         // Reset progress immediately: until the new item is ready and the
         // periodic observer ticks, currentTime/duration would otherwise hold
         // the *previous* episode's end position. Anything reading them in that

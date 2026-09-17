@@ -156,11 +156,13 @@ final class PlaybackSession: ObservableObject {
         engine.$currentTime
             .sink { [weak self] time in
                 guard let self else { return }
-                self.maybeTriggerPrefetch()
-                self.maybeAutoSkipSection()
                 // `@Published` publishes in `willSet`, so `engine.currentTime`
-                // still holds the previous tick inside this closure — persist
-                // the value the publisher carries instead.
+                // still holds the PREVIOUS tick inside this closure. Every
+                // handler here takes the value the publisher carries instead —
+                // reading the property made the auto-skip see the old episode's
+                // end position while the ranges were already the new one's.
+                self.maybeTriggerPrefetch(now: time)
+                self.maybeAutoSkipSection(now: time)
                 self.persistProgressIfDue(position: time, duration: self.engine.duration)
             }
             .store(in: &cancellables)
@@ -739,11 +741,11 @@ extension PlaybackSession {
     /// Forwards the engine tick into PrefetchCoordinator with all the context
     /// it needs. Once the current episode is watched past the trigger ratio,
     /// the coordinator kicks off a background resolve of N+1.
-    func maybeTriggerPrefetch() {
+    func maybeTriggerPrefetch(now: Double) {
         prefetchCoordinator.evaluateTick(
             currentShikimoriId: currentShikimoriId,
             currentEpisode: currentEpisode,
-            position: engine.currentTime,
+            position: now,
             duration: engine.duration,
             availableEpisodes: availableEpisodes,
             title: selectedSource?.title ?? "",
@@ -779,28 +781,30 @@ extension PlaybackSession {
     /// Settings, jumps to the end of the active opening / ending range exactly
     /// once per episode per kind. Manual rewinds back into an already-skipped
     /// range will NOT re-fire (see `firedAutoSkips`).
-    func maybeAutoSkipSection() {
-        guard autoSkipEnabled else { return }
-        // AVPlayer reports `currentTime` in 0.25s increments; the seek itself
-        // can land a few hundred ms before `upperBound`. Without a guard the
-        // tick that fires immediately after the seek would re-evaluate the
-        // same range and try to trigger again.
-        let now = engine.currentTime
-        guard now.isFinite, now >= 0 else { return }
+    @discardableResult
+    func maybeAutoSkipSection(now: Double) -> Bool {
+        guard autoSkipEnabled else { return false }
+        // Nothing may be skipped while the engine is between items: the ranges
+        // already describe the incoming episode, and a seek issued now would be
+        // queued and applied to it once it becomes ready.
+        guard engine.canStartPlayback else { return false }
+        guard now.isFinite, now >= 0 else { return false }
         let duration = engine.duration
-        guard duration > 0 else { return }
+        guard duration > 0 else { return false }
         let episode = currentEpisode
         // Opening first — both ranges should never overlap in practice but if
         // they do, opening wins (matches the manual-skip button precedence).
         if let opening = currentOpeningRangeSeconds,
            shouldAutoSkip(range: opening, current: now, kind: .opening, episode: episode) {
-            performAutoSkip(toUpperBoundOf: opening, kind: .opening, episode: episode)
-            return
+            performAutoSkip(toUpperBoundOf: opening, from: now, kind: .opening, episode: episode)
+            return true
         }
         if let ending = currentEndingRangeSeconds,
            shouldAutoSkip(range: ending, current: now, kind: .ending, episode: episode) {
-            performAutoSkip(toUpperBoundOf: ending, kind: .ending, episode: episode)
+            performAutoSkip(toUpperBoundOf: ending, from: now, kind: .ending, episode: episode)
+            return true
         }
+        return false
     }
 
     private func shouldAutoSkip(
@@ -824,6 +828,7 @@ extension PlaybackSession {
 
     private func performAutoSkip(
         toUpperBoundOf range: ClosedRange<Double>,
+        from position: Double,
         kind: PlayerSegmentKind,
         episode: Int
     ) {
@@ -832,7 +837,7 @@ extension PlaybackSession {
         engine.seek(seconds: target)
         NetworkLogStore.shared.logUIEvent(
             "watch_auto_skip kind=\(kind.rawValue) episode=\(episode)"
-            + " from=\(Int(engine.currentTime)) to=\(Int(target))"
+            + " from=\(Int(position)) to=\(Int(target))"
         )
     }
 }
