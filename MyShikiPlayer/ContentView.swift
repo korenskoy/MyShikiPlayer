@@ -56,6 +56,12 @@ struct ContentView: View {
         .task {
             await shikimoriAuth.restoreSession()
         }
+        .task(id: shikimoriAuth.profile?.id) {
+            // List statuses feed the poster stripes on every screen and the
+            // "not in my list" filter; one request per signed-in user.
+            guard let config = shikimoriAuth.configuration, let userId = shikimoriAuth.profile?.id else { return }
+            MyListIndex.shared.loadIfNeeded(configuration: config, userId: userId)
+        }
         .task {
             // Run independently of the auth flow: a broken Shikimori session
             // shouldn't hide a release that contains the fix for it.

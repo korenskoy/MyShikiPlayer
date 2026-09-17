@@ -248,14 +248,6 @@ struct CatalogView: View {
     // MARK: - Active filters summary
 
     private var activeFacetLabels: [String] {
-        var labels: [String] = []
-        labels.append(contentsOf: filter.selectedKinds.map(\.displayName))
-        labels.append(contentsOf: filter.selectedStatuses.map(\.displayName))
-        labels.append(contentsOf: filter.selectedSeasons.map(\.displayName))
-        labels.append(contentsOf: filter.selectedMyListStatuses.map(\.displayName))
-        labels.append(contentsOf: filter.selectedGenreIds.compactMap { id in
-            filterCatalog.genres.first { $0.id == id }?.russian
-        })
-        return labels
+        filter.activeFacetLabels(catalog: filterCatalog)
     }
 }

@@ -16,7 +16,7 @@ struct DensePosterCard: View {
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 3) {
-                CatalogPoster(item: item, cornerRadius: 6)
+                CatalogPoster(item: item, cornerRadius: 6, showsListStatus: true)
                     .aspectRatio(2.0/3.0, contentMode: .fit)
 
                 Text(displayTitle)

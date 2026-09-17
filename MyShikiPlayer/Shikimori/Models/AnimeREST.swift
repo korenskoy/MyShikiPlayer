@@ -28,6 +28,17 @@ struct AnimeListItem: Codable, Sendable, Equatable {
 }
 
 extension AnimeListItem {
+    /// "12 / 24" — aired episodes over the planned total, for the card badge.
+    /// Falls back to the aired count alone when the total is unknown, and to
+    /// nil when even that is missing. Shikimori sends 0 rather than null for
+    /// both fields, hence the `> 0` checks.
+    var episodesBadgeText: String? {
+        let aired = episodesAired ?? 0
+        let total = episodes ?? 0
+        guard aired > 0 else { return nil }
+        return total > 0 ? "\(aired) / \(total)" : "\(aired)"
+    }
+
     // Compact release-status label (Анонс / Онгоинг / Вышло) for card meta lines.
     var statusShortLabel: String? {
         guard let status, let parsed = AnimeStatus(rawValue: status) else { return nil }

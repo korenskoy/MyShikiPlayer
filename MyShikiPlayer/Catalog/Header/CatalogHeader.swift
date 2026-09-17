@@ -12,14 +12,15 @@ import SwiftUI
 struct CatalogHeader: View {
     @Environment(\.appTheme) private var theme
 
+    var title: String = "Весь каталог"
     let totalCount: Int
     @Binding var order: AnimeOrder?
     @Binding var ascending: Bool
-    @Binding var variant: CatalogVariant
+    /// Grid/dense/rows switch. Screens with a single card layout pass nil.
+    var variant: Binding<CatalogVariant>?
+    var orderOptions: [AnimeOrder] = [.ranked, .airedOn, .popularity]
     let activeFacetLabels: [String]
     let onResetFilters: () -> Void
-
-    private let orderOptions: [AnimeOrder] = [.ranked, .airedOn, .popularity]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -31,7 +32,7 @@ struct CatalogHeader: View {
     private var topRow: some View {
         HStack(alignment: .bottom, spacing: 16) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("Весь каталог")
+                Text(title)
                     .font(.dsDisplay(28, weight: .bold))
                     .foregroundStyle(theme.fg)
                     .tracking(-0.5)
@@ -49,12 +50,14 @@ struct CatalogHeader: View {
                     options: orderOptions
                 )
 
-                Rectangle()
-                    .fill(theme.line)
-                    .frame(width: 1, height: 20)
-                    .padding(.horizontal, 4)
+                if let variant {
+                    Rectangle()
+                        .fill(theme.line)
+                        .frame(width: 1, height: 20)
+                        .padding(.horizontal, 4)
 
-                CatalogVariantToggle(selection: $variant)
+                    CatalogVariantToggle(selection: variant)
+                }
             }
         }
     }

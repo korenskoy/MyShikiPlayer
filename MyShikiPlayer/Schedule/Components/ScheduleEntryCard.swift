@@ -16,7 +16,7 @@ struct ScheduleEntryCard: View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topTrailing) {
-                    CatalogPoster(item: entry.anime)
+                    CatalogPoster(item: entry.anime, showsListStatus: true)
                         .aspectRatio(2.0 / 3.0, contentMode: .fit)
 
                     if let episode = entry.estimatedEpisodeNumber {

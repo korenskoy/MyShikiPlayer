@@ -11,22 +11,66 @@
 import SwiftUI
 
 struct CatalogFilterSidebar: View {
-    @Environment(\.appTheme) private var theme
+    /// Sections the host screen wants to show, in render order. The catalog
+    /// keeps the original short set; Ongoings asks for the full one minus
+    /// the status facet, which is fixed for that screen.
+    enum Section: Hashable {
+        case score
+        case genres
+        case year
+        case earlier
+        case status
+        /// Short kind list: TV / Movie / OVA / ONA / Special.
+        case kind
+        /// Full kind list including the TV length buckets (tv_13/tv_24/tv_48),
+        /// which is how Shikimori separates short seasons from endless shows.
+        case kindWithLength
+        case duration
+        case rating
+        case origin
+        case studios
+        case myList
+        /// Censored / licensed toggles.
+        case flags
+
+        static let catalogDefault: [Section] = [.genres, .year, .earlier, .status, .kind, .myList]
+    }
+
+    @Environment(\.appTheme) var theme
     @ObservedObject var filter: AnimeFilterViewModel
     @ObservedObject var catalog: FilterCatalog
+    var sections: [Section] = Section.catalogDefault
     let onChange: () -> Void
+
+    @State var studioSearch: String = ""
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
-                genresSection
-                yearSection
-                earlierSection
-                statusSection
-                kindSection
-                myListSection
+                ForEach(sections, id: \.self) { section in
+                    self.section(section)
+                }
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ section: Section) -> some View {
+        switch section {
+        case .score:          scoreSection
+        case .genres:         genresSection
+        case .year:           yearSection
+        case .earlier:        earlierSection
+        case .status:         statusSection
+        case .kind:           kindSection(kinds: Self.shortKinds)
+        case .kindWithLength: kindSection(kinds: Self.kindsWithLength)
+        case .duration:       durationSection
+        case .rating:         ratingSection
+        case .origin:         originSection
+        case .studios:        studiosSection
+        case .myList:         myListSection
+        case .flags:          flagsSection
         }
     }
 
@@ -120,10 +164,17 @@ struct CatalogFilterSidebar: View {
         }
     }
 
-    private var kindSection: some View {
+    private static let shortKinds: [AnimeKind] = [.tv, .movie, .ova, .ona, .special]
+    /// `tv_13`/`tv_24`/`tv_48` are Shikimori's own length buckets — the only
+    /// server-side way to tell a one-cour show from a decade-long one.
+    private static let kindsWithLength: [AnimeKind] = [
+        .tv, .tv13, .tv24, .tv48, .ona, .ova, .movie, .special, .tvSpecial, .music,
+    ]
+
+    private func kindSection(kinds: [AnimeKind]) -> some View {
         FilterSectionFrame(title: "Тип") {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach([AnimeKind.tv, .movie, .ova, .ona, .special], id: \.self) { k in
+                ForEach(kinds, id: \.self) { k in
                     CatalogFilterCheckboxRow(
                         label: k.displayName,
                         count: nil,
@@ -138,6 +189,12 @@ struct CatalogFilterSidebar: View {
     private var myListSection: some View {
         FilterSectionFrame(title: "В моём списке") {
             VStack(alignment: .leading, spacing: 4) {
+                CatalogFilterCheckboxRow(
+                    label: "Нет в моём списке",
+                    count: nil,
+                    isChecked: filter.excludeMyList,
+                    onToggle: toggleExcludeMyList
+                )
                 ForEach(MyListStatus.allCases, id: \.self) { s in
                     CatalogFilterCheckboxRow(
                         label: s.displayName,
@@ -202,7 +259,15 @@ struct CatalogFilterSidebar: View {
             filter.selectedMyListStatuses.remove(myList)
         } else {
             filter.selectedMyListStatuses.insert(myList)
+            // Picking a status contradicts "not in my list" — drop it.
+            filter.excludeMyList = false
         }
+        onChange()
+    }
+
+    private func toggleExcludeMyList() {
+        filter.excludeMyList.toggle()
+        if filter.excludeMyList { filter.selectedMyListStatuses.removeAll() }
         onChange()
     }
 }
@@ -213,4 +278,3 @@ private enum FilterQuickGenres {
     struct Item: Hashable { let id: Int; let name: String }
     static let fallback: [Item] = [] // empty until data arrives — server-driven
 }
-

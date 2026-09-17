@@ -23,6 +23,14 @@ final class ExploreViewModel: ObservableObject {
 
     private var currentPage = 1
     private var activeTask: Task<Void, Never>?
+    private let pinQueryFields: (inout AnimeListQuery) -> Void
+
+    /// `pinQueryFields` runs after the filter has built the query — that is
+    /// where a screen forces the facets it owns. The default drops `mylist`:
+    /// the plain catalog is not a user-list screen.
+    init(pinQueryFields: @escaping (inout AnimeListQuery) -> Void = { $0.mylist = nil }) {
+        self.pinQueryFields = pinQueryFields
+    }
 
     func reload(configuration: ShikimoriConfiguration, filter: AnimeFilterViewModel) {
         activeTask?.cancel()
@@ -47,8 +55,7 @@ final class ExploreViewModel: ObservableObject {
 
         let rest = ShikimoriRESTClient(configuration: configuration)
         var query = filter.buildQuery(limit: Constants.pageSize, page: 1)
-        // Explore is a catalog screen — user-list facets don't apply here.
-        query.mylist = nil
+        pinQueryFields(&query)
 
         do {
             let chunk = try await rest.animes(query: query)
@@ -79,7 +86,7 @@ final class ExploreViewModel: ObservableObject {
 
         let rest = ShikimoriRESTClient(configuration: configuration)
         var query = filter.buildQuery(limit: Constants.pageSize, page: currentPage)
-        query.mylist = nil
+        pinQueryFields(&query)
 
         do {
             let chunk = try await rest.animes(query: query)

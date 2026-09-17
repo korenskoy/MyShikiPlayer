@@ -15,18 +15,27 @@ struct CatalogPoster: View {
     let item: AnimeListItem
     var cornerRadius: CGFloat = 10
     var showsScoreBadge: Bool = true
+    /// Episode counter ("12 / 24") pinned to the top-right corner. When set,
+    /// the score badge moves to the top-left so the two don't overlap.
+    var episodesText: String?
+    /// Corner dot with the user's list status, expanding into a pill on hover.
+    var showsListStatus: Bool = false
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             posterImage
 
-            if showsScoreBadge, let scoreText {
-                VStack {
-                    HStack {
-                        Spacer()
-                        scoreBadge(scoreText)
+            if badgeScoreText != nil || episodesText != nil {
+                HStack(alignment: .top, spacing: 6) {
+                    if episodesText != nil, let score = badgeScoreText {
+                        badge(score, color: scoreColor(for: score))
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
+                    if let episodesText {
+                        badge(episodesText, color: theme.fg2)
+                    } else if let score = badgeScoreText {
+                        badge(score, color: scoreColor(for: score))
+                    }
                 }
                 .padding(8)
                 .allowsHitTesting(false)
@@ -37,6 +46,14 @@ struct CatalogPoster: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(theme.line, lineWidth: 0.5)
         )
+        // After the clip on purpose: the expanded pill may be wider than a
+        // small poster (list rows are 60pt) and must not be cut off.
+        .overlay(alignment: .bottomLeading) {
+            if showsListStatus {
+                ListStatusBadge(animeId: item.id)
+                    .padding(3)
+            }
+        }
     }
 
     @ViewBuilder
@@ -82,10 +99,10 @@ struct CatalogPoster: View {
         }
     }
 
-    private func scoreBadge(_ text: String) -> some View {
+    private func badge(_ text: String, color: Color) -> some View {
         Text(text)
             .font(.dsMono(10, weight: .bold))
-            .foregroundStyle(scoreColor(for: text))
+            .foregroundStyle(color)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(
@@ -100,6 +117,10 @@ struct CatalogPoster: View {
         if value >= 8 { return theme.warn }
         if value >= 7 { return theme.good }
         return theme.fg2
+    }
+
+    private var badgeScoreText: String? {
+        showsScoreBadge ? scoreText : nil
     }
 
     private var scoreText: String? {

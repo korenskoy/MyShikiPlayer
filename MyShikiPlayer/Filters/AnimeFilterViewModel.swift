@@ -30,6 +30,9 @@ final class AnimeFilterViewModel: ObservableObject {
     @Published var selectedGenreIds: Set<Int>
     @Published var selectedStudioIds: Set<Int>
     @Published var selectedMyListStatuses: Set<MyListStatus>
+    /// "Not in my list". Client-side only — `mylist` selects statuses and has
+    /// no way to ask for titles the user never touched.
+    @Published var excludeMyList: Bool
     @Published var selectedOrder: AnimeOrder?
     /// Sort direction. `false` — descending (default; matches Shikimori
     /// REST/GraphQL natural order for ranked/popularity/aired_on); `true` —
@@ -56,6 +59,7 @@ final class AnimeFilterViewModel: ObservableObject {
         selectedGenreIds = persisted.genreIds
         selectedStudioIds = persisted.studioIds
         selectedMyListStatuses = persisted.mylistStatuses
+        excludeMyList = persisted.excludeMyList
         selectedOrder = persisted.order
         selectedAscending = persisted.ascending
         licensedOnly = persisted.licensedOnly
@@ -132,6 +136,7 @@ final class AnimeFilterViewModel: ObservableObject {
         selectedGenreIds.isEmpty &&
         selectedStudioIds.isEmpty &&
         selectedMyListStatuses.isEmpty &&
+        !excludeMyList &&
         selectedOrder == nil &&
         !licensedOnly &&
         !excludeCensored &&
@@ -152,6 +157,7 @@ final class AnimeFilterViewModel: ObservableObject {
         count += selectedGenreIds.count
         count += selectedStudioIds.count
         count += selectedMyListStatuses.count
+        if excludeMyList { count += 1 }
         if selectedOrder != nil { count += 1 }
         if licensedOnly { count += 1 }
         if excludeCensored { count += 1 }
@@ -171,6 +177,7 @@ final class AnimeFilterViewModel: ObservableObject {
         selectedGenreIds = []
         selectedStudioIds = []
         selectedMyListStatuses = []
+        excludeMyList = false
         selectedOrder = nil
         selectedAscending = false
         licensedOnly = false
@@ -256,6 +263,7 @@ final class AnimeFilterViewModel: ObservableObject {
             genreIds: Array(selectedGenreIds),
             studioIds: Array(selectedStudioIds),
             mylistStatuses: selectedMyListStatuses.map(\.rawValue),
+            excludeMyList: excludeMyList,
             order: selectedOrder?.rawValue,
             ascending: selectedAscending,
             licensedOnly: licensedOnly,
@@ -283,6 +291,7 @@ final class AnimeFilterViewModel: ObservableObject {
             genreIds: Set(snap.genreIds),
             studioIds: Set(snap.studioIds),
             mylistStatuses: Set(snap.mylistStatuses.compactMap(MyListStatus.init(rawValue:))),
+            excludeMyList: snap.excludeMyList ?? false,
             order: snap.order.flatMap(AnimeOrder.init(rawValue:)),
             ascending: snap.ascending ?? false,
             licensedOnly: snap.licensedOnly,
@@ -303,6 +312,7 @@ final class AnimeFilterViewModel: ObservableObject {
         var genreIds: Set<Int> = []
         var studioIds: Set<Int> = []
         var mylistStatuses: Set<MyListStatus> = []
+        var excludeMyList: Bool = false
         var order: AnimeOrder? = nil
         var ascending: Bool = false
         var licensedOnly: Bool = false
@@ -323,6 +333,8 @@ final class AnimeFilterViewModel: ObservableObject {
         let genreIds: [Int]
         let studioIds: [Int]
         let mylistStatuses: [String]
+        /// Optional for backwards compatibility with older snapshots.
+        let excludeMyList: Bool?
         let order: String?
         /// Optional for backwards compatibility — older snapshots default to desc.
         let ascending: Bool?

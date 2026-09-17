@@ -16,8 +16,11 @@ struct CatalogRow: View {
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .center, spacing: 16) {
-                CatalogPoster(item: item, cornerRadius: 6, showsScoreBadge: false)
+                CatalogPoster(item: item, cornerRadius: 6, showsScoreBadge: false, showsListStatus: true)
                     .frame(width: 60, height: 90)
+                    // The status pill overflows this narrow poster on hover —
+                    // keep it above the title column instead of under it.
+                    .zIndex(1)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(romaji)

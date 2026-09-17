@@ -11,13 +11,19 @@ import SwiftUI
 struct CatalogCard: View {
     @Environment(\.appTheme) private var theme
     let item: AnimeListItem
+    /// Ongoings grid shows "aired / total" on the poster; the catalog doesn't.
+    var showsEpisodesBadge: Bool = false
     var onOpen: () -> Void = {}
 
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 6) {
-                CatalogPoster(item: item)
-                    .aspectRatio(2.0/3.0, contentMode: .fit)
+                CatalogPoster(
+                    item: item,
+                    episodesText: showsEpisodesBadge ? item.episodesBadgeText : nil,
+                    showsListStatus: true
+                )
+                .aspectRatio(2.0/3.0, contentMode: .fit)
 
                 Text(displayTitle)
                     .font(.dsBody(13, weight: .semibold))

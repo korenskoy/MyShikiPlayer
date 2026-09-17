@@ -279,13 +279,14 @@ struct AppShellView: View {
             HomeView(
                 auth: auth,
                 onOpenDetails: { id in searchOpenedDetailId = id },
-                onOpenSchedule: { navigation.selectedBranch = .schedule }
+                onOpenSchedule: { navigation.openOngoingsCalendar() }
             )
         case .catalog:
             CatalogView(auth: auth)
-        case .schedule:
-            ScheduleView(
+        case .ongoings:
+            OngoingsView(
                 auth: auth,
+                tab: $navigation.ongoingsTab,
                 onOpenDetails: { id in searchOpenedDetailId = id }
             )
         case .social:

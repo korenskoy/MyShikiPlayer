@@ -11,7 +11,7 @@ final class NavigationState: ObservableObject {
     enum Branch: String, CaseIterable, Identifiable, Codable {
         case home
         case catalog
-        case schedule
+        case ongoings
         case social
         case myLists
         case history
@@ -24,7 +24,7 @@ final class NavigationState: ObservableObject {
             switch self {
             case .home:     return "Главная"
             case .catalog:  return "Каталог"
-            case .schedule: return "Календарь"
+            case .ongoings: return "Онгоинги"
             case .social:   return "Лента"
             case .myLists:  return "Мои списки"
             case .history:  return "История"
@@ -37,7 +37,7 @@ final class NavigationState: ObservableObject {
             switch self {
             case .home:     return "home"
             case .catalog:  return "grid"
-            case .schedule: return "calendar"
+            case .ongoings: return "calendar"
             case .social:   return "users"
             case .myLists:  return "bookmark"
             case .history:  return "clock"
@@ -46,8 +46,32 @@ final class NavigationState: ObservableObject {
         }
 
         /// Branches shown in the horizontal nav bar. Profile is reached separately via the avatar.
-        static let navBarCases: [Branch] = [.home, .catalog, .myLists, .schedule, .social, .history]
+        static let navBarCases: [Branch] = [.home, .catalog, .myLists, .ongoings, .social, .history]
+    }
+
+    /// Sub-tabs of the Ongoings branch: the airing calendar and the
+    /// rating-ordered release grid.
+    enum OngoingsTab: String, CaseIterable, Identifiable, Codable {
+        case calendar
+        case releases
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .calendar: return "Календарь"
+            case .releases: return "Релизы"
+            }
+        }
     }
 
     @Published var selectedBranch: Branch = .myLists
+    @Published var ongoingsTab: OngoingsTab = .calendar
+
+    /// Home's "schedule" link lands on the calendar, not on whichever
+    /// Ongoings tab was open last.
+    func openOngoingsCalendar() {
+        ongoingsTab = .calendar
+        selectedBranch = .ongoings
+    }
 }
