@@ -44,8 +44,19 @@ struct AppShellView: View {
                     onSelectBranch: { branch in selectBranchFromTopBar(branch) }
                 )
                 // Per the reference (screens-detail.jsx) — TopBar stays visible
-                // and the detail screen goes BELOW the header. No overlay.
-                Group {
+                // and the detail screen goes BELOW the header.
+                //
+                // The branch stays in the view tree behind the detail page
+                // instead of being swapped out by an if/else: SwiftUI would
+                // tear down its scroll offset, loaded pages and view models,
+                // so coming back from a title dropped the user at the top of
+                // a freshly reloaded list.
+                ZStack {
+                    branchView
+                        .opacity(searchOpenedDetailId == nil ? 1 : 0)
+                        .allowsHitTesting(searchOpenedDetailId == nil)
+                        .accessibilityHidden(searchOpenedDetailId != nil)
+
                     if let id = searchOpenedDetailId, let config = auth.configuration {
                         AnimeDetailsView(
                             auth: auth,
@@ -67,8 +78,6 @@ struct AppShellView: View {
                         // we recreate the View — otherwise the @StateObject VM
                         // gets stuck on the previous shikimoriId.
                         .id(id)
-                    } else {
-                        branchView
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
