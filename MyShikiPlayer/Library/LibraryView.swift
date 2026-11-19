@@ -240,19 +240,19 @@ struct LibraryView: View {
             case .grid:
                 LazyVGrid(columns: cols(5), alignment: .leading, spacing: 14) {
                     ForEach(items) { item in
-                        CatalogCard(item: item.asAnimeListItem) { onOpenDetails(item.shikimoriId) }
+                        CatalogCard(item: item.asAnimeListItem, progress: item.progressBadge) { onOpenDetails(item.shikimoriId) }
                     }
                 }
             case .dense:
                 LazyVGrid(columns: cols(8), alignment: .leading, spacing: 10) {
                     ForEach(items) { item in
-                        DensePosterCard(item: item.asAnimeListItem) { onOpenDetails(item.shikimoriId) }
+                        DensePosterCard(item: item.asAnimeListItem, progress: item.progressBadge) { onOpenDetails(item.shikimoriId) }
                     }
                 }
             case .rows:
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(items) { item in
-                        CatalogRow(item: item.asAnimeListItem) { onOpenDetails(item.shikimoriId) }
+                        CatalogRow(item: item.asAnimeListItem, progress: item.progressBadge) { onOpenDetails(item.shikimoriId) }
                     }
                 }
             }

@@ -312,15 +312,14 @@ final class AnimeDetailsViewModel: ObservableObject {
     /// (rewatches do not roll back progress), idempotent (if already marked —
     /// no network call). If user_rate does not exist yet — creates one with
     /// status `watching`. Non-throwing: errors are logged, caller proceeds.
-    /// When the watched episode equals the title's last episode, the status
-    /// flips to `completed` in the same request — keeps the user list in sync
-    /// without requiring a manual status change.
+    /// When the total episode count is known and the watched episode matches
+    /// it, the status flips to `completed` in the same request.
     func markEpisodeWatched(_ episode: Int) async {
         guard let userId = currentUserId else { return }
         let target = max(userEpisodesWatched, episode)
         guard target > userEpisodesWatched else { return }
-        let totalEpisodes = detail?.episodeCountForPickerFallback ?? 0
-        let reachesFinal = totalEpisodes > 0 && target >= totalEpisodes
+        let totalEpisodes = detail?.episodes ?? 0
+        let reachesFinal = totalEpisodes > 0 && episode == totalEpisodes
         // Auto-flip to `completed` when the watched episode reaches the
         // title's last; otherwise keep the existing status by passing nil
         // (PATCH preserves missing fields server-side).

@@ -21,9 +21,11 @@ actor RequestThrottler {
         maxRequestsInWindow: 90
     )
 
+    /// Time of the latest granted slot. It may lie in the future: a slot is
+    /// reserved when a caller arrives, not when it leaves.
     private var lastRequest: Date = .distantPast
-    /// Timestamps of grants that still fall inside the rolling
-    /// `windowDuration`. Expired entries are dropped on each call.
+    /// Slots granted within the rolling `windowDuration`, ascending (slots are
+    /// handed out monotonically). Expired entries are dropped on each call.
     private var recentGrants: [Date] = []
     private let minInterval: TimeInterval
     private let windowDuration: TimeInterval
@@ -40,37 +42,29 @@ actor RequestThrottler {
     }
 
     func waitTurn() async {
-        // Stage 1 — per-second minimum interval.
         let now = Date()
-        let elapsed = now.timeIntervalSince(lastRequest)
-        if elapsed < minInterval {
-            let ns = UInt64((minInterval - elapsed) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: ns)
+        // The slot is computed and recorded BEFORE suspending. Actors are
+        // reentrant: when the stamp was written after the sleep, every caller
+        // arriving during that sleep read the same stale `lastRequest`,
+        // computed the same wake-up time and left the gate together — a burst
+        // that Shikimori answered with 429.
+        var slot = max(now, lastRequest.addingTimeInterval(minInterval))
+
+        // Rolling window: with `maxRequestsInWindow` grants already inside the
+        // window, the slot has to wait until the oldest of them falls out.
+        recentGrants.removeAll { $0 <= now.addingTimeInterval(-windowDuration) }
+        if recentGrants.count >= maxRequestsInWindow {
+            let blocking = recentGrants[recentGrants.count - maxRequestsInWindow]
+            slot = max(slot, blocking.addingTimeInterval(windowDuration))
         }
 
-        // Stage 2 — rolling window cap. Drop expired stamps, then if the
-        // window is full sleep until the oldest stamp falls out. Re-evaluate
-        // in a loop because other tasks waiting on this actor may have
-        // grabbed slots while we slept.
-        while true {
-            let windowStart = Date().addingTimeInterval(-windowDuration)
-            recentGrants.removeAll { $0 < windowStart }
-            if recentGrants.count < maxRequestsInWindow { break }
-            guard let oldest = recentGrants.first else { break }
-            let wakeup = oldest.addingTimeInterval(windowDuration)
-            let toSleep = wakeup.timeIntervalSince(Date())
-            guard toSleep > 0 else { continue }
-            // +1ms cushion so the next loop iteration sees the stamp as
-            // strictly expired (avoids tight thrash on clock granularity).
-            try? await Task.sleep(nanoseconds: UInt64(toSleep * 1_000_000_000) + 1_000_000)
-        }
+        lastRequest = slot
+        recentGrants.append(slot)
 
-        // Stamp after any sleep completed so `durationFromIssued` (used by
-        // network-log diagnostics) tracks the moment the request actually
-        // left the gate, not when it was queued.
-        let stamp = Date()
-        lastRequest = stamp
-        recentGrants.append(stamp)
+        let delay = slot.timeIntervalSince(now)
+        if delay > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
     }
 }
 

@@ -349,6 +349,8 @@ extension ShikimoriGraphQLClient {
             status
             season
             score
+            episodes
+            episodesAired
             airedOn { date }
             releasedOn { date }
             poster { originalUrl mainUrl }

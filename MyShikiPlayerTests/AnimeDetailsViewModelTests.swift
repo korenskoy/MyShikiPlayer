@@ -436,6 +436,37 @@ final class AnimeDetailsViewModelTests: XCTestCase {
     }
 }
 
+extension AnimeDetailsViewModelTests {
+    func testMarkEpisodeWatchedUsesKnownTotalForCompletion() async {
+        let cases: [(total: Int?, status: String?)] = [(12, nil), (nil, nil), (0, nil), (8, "completed"), (7, nil)]
+
+        for (total, status) in cases {
+            let mutations = StubUserRateMutating()
+            mutations.nextUpdateResult = UserRateMutationResult(
+                rateId: 1,
+                status: status ?? "watching",
+                score: nil,
+                episodesWatched: 8
+            )
+            let repo = StubAnimeDetailsRepository()
+            repo.snapshotResult = .success(makeSnapshot(detail: makeDetail(
+                status: "ongoing",
+                ongoing: true,
+                episodes: total,
+                episodesAired: 8,
+                userRate: UserRateREST(id: 1, score: nil, status: "watching", episodes: 7, rewatches: 0)
+            )))
+            let viewModel = makeViewModel(repository: repo, currentUserId: 42, mutations: mutations)
+            await viewModel.load()
+
+            await viewModel.markEpisodeWatched(8)
+
+            XCTAssertEqual(mutations.updatedEpisodesWatched, 8)
+            XCTAssertEqual(mutations.updatedStatus, status, "Total episodes: \(String(describing: total))")
+        }
+    }
+}
+
 // MARK: - Test doubles
 
 @MainActor
@@ -521,6 +552,8 @@ private final class NoopUserRateMutating: UserRateMutating {
 private final class StubUserRateMutating: UserRateMutating {
     var nextUpdateResult: UserRateMutationResult?
     var nextCreateResult: UserRateMutationResult?
+    private(set) var updatedStatus: String?
+    private(set) var updatedEpisodesWatched: Int?
 
     func updateUserRate(
         configuration: ShikimoriConfiguration,
@@ -535,6 +568,8 @@ private final class StubUserRateMutating: UserRateMutating {
             XCTFail("updateUserRate called without nextUpdateResult set")
             throw StubError.notSet
         }
+        updatedStatus = status
+        updatedEpisodesWatched = episodesWatched
         return result
     }
 

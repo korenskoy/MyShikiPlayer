@@ -29,6 +29,11 @@ final class AnimeListViewModel: ObservableObject {
         let animeSeason: String?
         /// Global Shikimori score (0…10), nil when the title has no rating yet.
         let animeScore: Double?
+        /// Planned episode count; 0 or nil while unannounced.
+        let animeEpisodes: Int?
+        /// Episodes out so far. Shikimori leaves it at 0 for many finished
+        /// titles — see `progressBadge` for how that is handled.
+        let animeEpisodesAired: Int?
     }
 
     private struct ListCacheEnvelope: Codable {
@@ -40,7 +45,9 @@ final class AnimeListViewModel: ObservableObject {
         // v4 invalidates v3 caches whose `animeScore` was never populated:
         // the dynamic GraphQL query used by LibraryLoader did not select the
         // `score` field, so every cached Item had animeScore == nil.
-        static let keyPrefix = "animeList.cache.v4."
+        // v5 adds animeEpisodes / animeEpisodesAired for the progress chip;
+        // v4 items would decode them as nil until the TTL ran out.
+        static let keyPrefix = "animeList.cache.v5."
         static let ttl: TimeInterval = 15 * 60
     }
 
@@ -137,21 +144,12 @@ final class AnimeListViewModel: ObservableObject {
                 return
             }
             if let index = self.allItems.firstIndex(where: { $0.shikimoriId == animeId }) {
-                let old = self.allItems[index]
-                self.allItems[index] = Item(
-                    id: payload.rateId,
-                    shikimoriId: old.shikimoriId,
-                    title: old.title,
-                    kind: old.kind,
-                    year: old.year,
+                self.allItems[index] = self.allItems[index].updating(
+                    rateId: payload.rateId,
                     status: payload.status,
                     score: payload.score,
                     episodesWatched: payload.episodes,
-                    posterURL: old.posterURL,
-                    updatedAt: payload.updatedAt ?? Date(),
-                    animeStatus: old.animeStatus,
-                    animeSeason: old.animeSeason,
-                    animeScore: old.animeScore
+                    updatedAt: payload.updatedAt ?? Date()
                 )
             }
             self.invalidateListCache()
@@ -285,20 +283,12 @@ final class AnimeListViewModel: ObservableObject {
             let loader = LibraryLoader(configuration: configuration)
             let updated = try await loader.updateRate(id: item.id, body: body)
             if let index = allItems.firstIndex(where: { $0.id == item.id }) {
-                allItems[index] = Item(
-                    id: updated.id,
-                    shikimoriId: allItems[index].shikimoriId,
-                    title: allItems[index].title,
-                    kind: allItems[index].kind,
-                    year: allItems[index].year,
+                allItems[index] = allItems[index].updating(
+                    rateId: updated.id,
                     status: updated.status,
                     score: updated.score,
                     episodesWatched: updated.episodes,
-                    posterURL: allItems[index].posterURL,
-                    updatedAt: updated.updatedAt,
-                    animeStatus: allItems[index].animeStatus,
-                    animeSeason: allItems[index].animeSeason,
-                    animeScore: allItems[index].animeScore
+                    updatedAt: updated.updatedAt
                 )
             }
             invalidateListCache()

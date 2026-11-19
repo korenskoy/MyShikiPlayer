@@ -65,7 +65,9 @@ struct LibraryLoader {
                 updatedAt: rate.updatedAt,
                 animeStatus: anime?.status?.lowercased(),
                 animeSeason: anime?.season,
-                animeScore: anime?.score
+                animeScore: anime?.score,
+                animeEpisodes: anime?.episodes,
+                animeEpisodesAired: anime?.episodesAired
             )
         }
         .sorted { $0.updatedAt > $1.updatedAt }

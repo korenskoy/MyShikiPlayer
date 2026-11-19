@@ -11,12 +11,14 @@ import SwiftUI
 struct CatalogRow: View {
     @Environment(\.appTheme) private var theme
     let item: AnimeListItem
+    /// "watched / out" chip, library screens only.
+    var progress: PosterProgressBadge?
     var onOpen: () -> Void = {}
 
     var body: some View {
         Button(action: onOpen) {
             HStack(alignment: .center, spacing: 16) {
-                CatalogPoster(item: item, cornerRadius: 6, showsScoreBadge: false, showsListStatus: true)
+                CatalogPoster(item: item, cornerRadius: 6, showsScoreBadge: false, showsListStatus: true, progress: progress)
                     .frame(width: 60, height: 90)
                     // The status pill overflows this narrow poster on hover —
                     // keep it above the title column instead of under it.

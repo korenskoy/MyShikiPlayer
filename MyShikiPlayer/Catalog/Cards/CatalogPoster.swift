@@ -9,6 +9,13 @@
 
 import SwiftUI
 
+/// Watch progress shown on a poster: "3 / 5". `hasNew` marks a title the
+/// user follows that already has unwatched episodes out.
+struct PosterProgressBadge: Equatable {
+    let text: String
+    let hasNew: Bool
+}
+
 struct CatalogPoster: View {
     @Environment(\.appTheme) private var theme
 
@@ -20,14 +27,18 @@ struct CatalogPoster: View {
     var episodesText: String?
     /// Corner dot with the user's list status, expanding into a pill on hover.
     var showsListStatus: Bool = false
+    /// "watched / out" chip in the top-left corner (library screens).
+    var progress: PosterProgressBadge?
 
     var body: some View {
         ZStack(alignment: .top) {
             posterImage
 
-            if badgeScoreText != nil || episodesText != nil {
+            if badgeScoreText != nil || episodesText != nil || progress != nil {
                 HStack(alignment: .top, spacing: 6) {
-                    if episodesText != nil, let score = badgeScoreText {
+                    if let progress {
+                        badge(progress.text, color: progress.hasNew ? theme.accent : theme.fg)
+                    } else if episodesText != nil, let score = badgeScoreText {
                         badge(score, color: scoreColor(for: score))
                     }
                     Spacer(minLength: 0)

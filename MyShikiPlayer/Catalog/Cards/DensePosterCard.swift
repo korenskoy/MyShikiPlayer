@@ -11,12 +11,14 @@ import SwiftUI
 struct DensePosterCard: View {
     @Environment(\.appTheme) private var theme
     let item: AnimeListItem
+    /// "watched / out" chip, library screens only.
+    var progress: PosterProgressBadge?
     var onOpen: () -> Void = {}
 
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 3) {
-                CatalogPoster(item: item, cornerRadius: 6, showsListStatus: true)
+                CatalogPoster(item: item, cornerRadius: 6, showsListStatus: true, progress: progress)
                     .aspectRatio(2.0/3.0, contentMode: .fit)
 
                 Text(displayTitle)

@@ -13,6 +13,7 @@ struct CatalogCard: View {
     let item: AnimeListItem
     /// Ongoings grid shows "aired / total" on the poster; the catalog doesn't.
     var showsEpisodesBadge: Bool = false
+    var progress: PosterProgressBadge?
     var onOpen: () -> Void = {}
 
     var body: some View {
@@ -21,7 +22,8 @@ struct CatalogCard: View {
                 CatalogPoster(
                     item: item,
                     episodesText: showsEpisodesBadge ? item.episodesBadgeText : nil,
-                    showsListStatus: true
+                    showsListStatus: true,
+                    progress: progress
                 )
                 .aspectRatio(2.0/3.0, contentMode: .fit)
 
